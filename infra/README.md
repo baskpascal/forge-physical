@@ -47,11 +47,11 @@ variables from Terraform outputs (no JSON key is used):
 
 ```powershell
 terraform output -raw github_workload_identity_provider # GCP_WORKLOAD_IDENTITY_PROVIDER
-terraform output -raw github_deploy_service_account      # GCP_DEPLOY_SERVICE_ACCOUNT
-# GCP_BUILD_SERVICE_ACCOUNT=forge-build@supple-voyage-507119-v0.iam.gserviceaccount.com
+terraform output -raw github_service_account             # GCP_SERVICE_ACCOUNT
 # GCP_PROJECT_ID=supple-voyage-507119-v0
 # GCP_REGION=us-central1
 ```
 
-The checked-in workflow uses GitHub OIDC, stages source in the dedicated build-source bucket, and
-submits Cloud Build as `forge-build`. It does not use a service-account key.
+Set the provider output as `GCP_WIF_PROVIDER` (not a secret). The checked-in workflow uses GitHub
+OIDC -> Workload Identity Federation -> `forge-build`, stages source in the dedicated build-source
+bucket, and submits Cloud Build as that same identity. It does not use a service-account key.

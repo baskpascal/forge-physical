@@ -6,7 +6,6 @@ locals {
   api_sa              = "forge-api@${var.project_id}.iam.gserviceaccount.com"
   worker_sa           = "forge-worker@${var.project_id}.iam.gserviceaccount.com"
   build_sa            = "forge-build@${var.project_id}.iam.gserviceaccount.com"
-  deploy_sa           = "forge-github-deploy@${var.project_id}.iam.gserviceaccount.com"
 }
 
 resource "google_project_service" "required" {
@@ -90,12 +89,6 @@ resource "google_service_account" "build" {
   display_name = "Forge Physical Cloud Build deployer"
 }
 
-resource "google_service_account" "github_deploy" {
-  count        = var.github_repository == null ? 0 : 1
-  account_id   = "forge-github-deploy"
-  display_name = "Forge Physical GitHub Actions deployer"
-}
-
 resource "google_secret_manager_secret" "wokwi" {
   secret_id = "wokwi-cli-token"
 
@@ -145,6 +138,7 @@ resource "google_secret_manager_secret_iam_member" "worker_wokwi" {
 resource "google_project_iam_member" "build_roles" {
   for_each = toset([
     "roles/artifactregistry.writer",
+    "roles/cloudbuild.builds.editor",
     "roles/cloudbuild.builds.builder",
     "roles/logging.logWriter",
     "roles/run.admin",
@@ -163,8 +157,14 @@ resource "google_secret_manager_secret_iam_member" "build_views_wokwi" {
 
 resource "google_storage_bucket_iam_member" "build_reads_source" {
   bucket = google_storage_bucket.build_source.name
-  role   = "roles/storage.objectViewer"
+  role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${local.build_sa}"
+}
+
+resource "google_service_account_iam_member" "build_uses_self" {
+  service_account_id = google_service_account.build.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${local.build_sa}"
 }
 
 resource "google_service_account_iam_member" "build_runtime_user" {
@@ -363,28 +363,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
 
 resource "google_service_account_iam_member" "github_wif" {
   count              = var.github_repository == null ? 0 : 1
-  service_account_id = google_service_account.github_deploy[0].name
+  service_account_id = google_service_account.build.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github[0].name}/attribute.repository/${var.github_repository}"
-}
-
-resource "google_project_iam_member" "github_build_submit" {
-  count   = var.github_repository == null ? 0 : 1
-  project = var.project_id
-  role    = "roles/cloudbuild.builds.editor"
-  member  = "serviceAccount:${local.deploy_sa}"
-}
-
-resource "google_service_account_iam_member" "github_uses_build" {
-  count              = var.github_repository == null ? 0 : 1
-  service_account_id = google_service_account.build.name
-  role               = "roles/iam.serviceAccountUser"
-  member             = "serviceAccount:${local.deploy_sa}"
-}
-
-resource "google_storage_bucket_iam_member" "github_stages_source" {
-  count  = var.github_repository == null ? 0 : 1
-  bucket = google_storage_bucket.build_source.name
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${local.deploy_sa}"
 }

@@ -39,7 +39,7 @@ gcloud storage buckets describe "gs://${BUCKET}" >/dev/null 2>&1 || \
 gcloud storage buckets describe "gs://${BUILD_SOURCE_BUCKET}" >/dev/null 2>&1 || \
   gcloud storage buckets create "gs://${BUILD_SOURCE_BUCKET}" --location="$REGION" --uniform-bucket-level-access
 
-for ACCOUNT in forge-api forge-worker forge-build forge-github-deploy; do
+for ACCOUNT in forge-api forge-worker forge-build; do
   gcloud iam service-accounts describe "${ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" >/dev/null 2>&1 || \
     gcloud iam service-accounts create "$ACCOUNT" --display-name="$ACCOUNT"
 done
@@ -47,7 +47,6 @@ done
 API_SA="forge-api@${PROJECT_ID}.iam.gserviceaccount.com"
 WORKER_SA="forge-worker@${PROJECT_ID}.iam.gserviceaccount.com"
 BUILD_SA="forge-build@${PROJECT_ID}.iam.gserviceaccount.com"
-DEPLOY_SA="forge-github-deploy@${PROJECT_ID}.iam.gserviceaccount.com"
 
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${API_SA}" --role=roles/datastore.user
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${WORKER_SA}" --role=roles/datastore.user
@@ -64,7 +63,7 @@ unset WOKWI_TOKEN
 gcloud secrets add-iam-policy-binding wokwi-cli-token --member="serviceAccount:${WORKER_SA}" --role=roles/secretmanager.secretAccessor
 
 # Cloud Build executes the deployment, but cannot become either runtime identity beyond deployment.
-for ROLE in roles/artifactregistry.writer roles/logging.logWriter roles/run.admin; do
+for ROLE in roles/artifactregistry.writer roles/cloudbuild.builds.builder roles/cloudbuild.builds.editor roles/logging.logWriter roles/run.admin; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${BUILD_SA}" --role="$ROLE"
 done
 for RUNTIME_SA in "$API_SA" "$WORKER_SA"; do
@@ -73,14 +72,11 @@ for RUNTIME_SA in "$API_SA" "$WORKER_SA"; do
 done
 gcloud secrets add-iam-policy-binding wokwi-cli-token --member="serviceAccount:${BUILD_SA}" --role=roles/secretmanager.viewer
 
-# GitHub can submit builds, but receives only short-lived OIDC-derived credentials.
-gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${DEPLOY_SA}" --role=roles/cloudbuild.builds.editor
+# GitHub's short-lived OIDC identity federates directly as forge-build.
+gcloud storage buckets add-iam-policy-binding "gs://${BUILD_SOURCE_BUCKET}" \
+  --member="serviceAccount:${BUILD_SA}" --role=roles/storage.objectAdmin
 gcloud iam service-accounts add-iam-policy-binding "$BUILD_SA" \
-  --member="serviceAccount:${DEPLOY_SA}" --role=roles/iam.serviceAccountUser
-gcloud storage buckets add-iam-policy-binding "gs://${BUILD_SOURCE_BUCKET}" \
-  --member="serviceAccount:${DEPLOY_SA}" --role=roles/storage.objectAdmin
-gcloud storage buckets add-iam-policy-binding "gs://${BUILD_SOURCE_BUCKET}" \
-  --member="serviceAccount:${BUILD_SA}" --role=roles/storage.objectViewer
+  --member="serviceAccount:${BUILD_SA}" --role=roles/iam.serviceAccountUser
 
 gcloud iam workload-identity-pools describe github --location=global >/dev/null 2>&1 || \
   gcloud iam workload-identity-pools create github --location=global --display-name="GitHub Actions"
@@ -93,27 +89,26 @@ gcloud iam workload-identity-pools providers describe forge --workload-identity-
 
 POOL_NAME="$(gcloud iam workload-identity-pools describe github --location=global --format='value(name)')"
 PROVIDER_NAME="$(gcloud iam workload-identity-pools providers describe forge --workload-identity-pool=github --location=global --format='value(name)')"
-gcloud iam service-accounts add-iam-policy-binding "$DEPLOY_SA" \
+gcloud iam service-accounts add-iam-policy-binding "$BUILD_SA" \
   --member="principalSet://iam.googleapis.com/${POOL_NAME}/attribute.repository/${GITHUB_REPO}" \
   --role=roles/iam.workloadIdentityUser
 
 printf 'GitHub variable GCP_PROJECT_ID=%s\n' "$PROJECT_ID"
 printf 'GitHub variable GCP_REGION=%s\n' "$REGION"
-printf 'GitHub variable GCP_WORKLOAD_IDENTITY_PROVIDER=%s\n' "$PROVIDER_NAME"
-printf 'GitHub variable GCP_DEPLOY_SERVICE_ACCOUNT=%s\n' "$DEPLOY_SA"
-printf 'GitHub variable GCP_BUILD_SERVICE_ACCOUNT=%s\n' "$BUILD_SA"
+printf 'GitHub variable GCP_WIF_PROVIDER=%s\n' "$PROVIDER_NAME"
+printf 'GitHub variable GCP_SERVICE_ACCOUNT=%s\n' "$BUILD_SA"
 ```
 
-After the first deployment, grant the API permission to execute only the worker job:
+After the first deployment, grant the API permission to execute the worker job with build overrides:
 
 ```bash
 gcloud run jobs add-iam-policy-binding forge-worker --region="$REGION" \
-  --member="serviceAccount:${API_SA}" --role=roles/run.invoker
+  --member="serviceAccount:${API_SA}" --role=roles/run.developer
 ```
 
-Create GitHub **repository variables**, not secrets, for the five printed values plus:
-`PUBLIC_BUILD_URL=https://your-app.vercel.app`, `PUBLIC_API_URL` set to the deployed Cloud Run API
-URL (or its custom domain), and `WOKWI_SECRET_VERSION=1`. The workflow never accepts a
+Create GitHub **repository variables**, not secrets, for the printed values plus:
+`PUBLIC_BUILD_URL=https://your-app.vercel.app` and `PUBLIC_API_URL` set to the deployed Cloud Run API
+URL (or its custom domain). The workflow never accepts a
 service-account JSON. Obtain the API URL after an initial deploy with:
 
 ```bash

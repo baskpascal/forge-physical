@@ -8,6 +8,6 @@ output "wokwi_secret_name" { value = google_secret_manager_secret.wokwi.name }
 output "github_workload_identity_provider" {
   value = var.github_repository == null ? null : google_iam_workload_identity_pool_provider.github[0].name
 }
-output "github_deploy_service_account" {
-  value = var.github_repository == null ? null : google_service_account.github_deploy[0].email
+output "github_service_account" {
+  value = var.github_repository == null ? null : google_service_account.build.email
 }
