@@ -1,0 +1,38 @@
+name: Deploy Google Cloud backend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: ${{ vars.GCP_PROJECT_ID != '' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate with short-lived Google credentials
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Submit the backend build and deployment
+        shell: bash
+        run: |
+          gcloud builds submit \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --service-account="projects/${{ vars.GCP_PROJECT_ID }}/serviceAccounts/${{ vars.GCP_BUILD_SERVICE_ACCOUNT }}" \
+            --gcs-source-staging-dir="gs://${{ vars.GCP_PROJECT_ID }}-forge-build-source/source" \
+            --config=cloudbuild.yaml \
+            --substitutions="_REGION=${{ vars.GCP_REGION }},_IMAGE_TAG=${GITHUB_SHA},_PUBLIC_BUILD_URL=${{ vars.PUBLIC_BUILD_URL }},_PUBLIC_API_URL=${{ vars.PUBLIC_API_URL }},_WOKWI_SECRET_VERSION=${{ vars.WOKWI_SECRET_VERSION }}"

@@ -1,0 +1,17 @@
+{
+  "name": "forge-physical",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "npm run dev --workspace=@forge/web",
+    "build": "npm run build --workspace=@forge/web",
+    "lint": "npm run lint --workspace=@forge/web",
+    "test": "npm run test --workspace=@forge/web",
+    "backend:install": "python -m pip install -e services/build-worker[dev]",
+    "backend:dev": "python -m uvicorn hardware_build.api:app --reload --port 8080",
+    "backend:test": "python -m pytest services/build-worker/tests",
+    "smoke": "python -m hardware_build.smoke"
+  },
+  "engines": {"node": ">=22"}
+}

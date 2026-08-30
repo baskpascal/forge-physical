@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forge-hardware-build"
+version = "0.1.0"
+description = "Agent-native hardware build, simulation, and verification service"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi>=0.116,<1",
+  "uvicorn[standard]>=0.35,<1",
+  "pydantic>=2.11,<3",
+  "pydantic-settings>=2.10,<3",
+  "google-adk>=1.17,<2",
+  "google-cloud-firestore>=2.21,<3",
+  "google-cloud-run>=0.10,<1",
+  "google-cloud-storage>=3,<4",
+  "mcp>=1.13,<2",
+  "httpx>=0.28,<1"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.4,<9", "pytest-cov>=6.2,<7", "ruff>=0.12,<1"]
+tooling = ["platformio>=6.1,<7"]
+
+[project.scripts]
+hardware = "hardware_build.cli:main"
+hardware-build-api = "hardware_build.api:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hardware_build"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
