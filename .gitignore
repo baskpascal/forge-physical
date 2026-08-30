@@ -1,4 +1,10 @@
 node_modules/
+.terraform/
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!infra/terraform.tfvars.example
 .next/
 dist/
 coverage/
@@ -21,9 +27,5 @@ artifacts/
 *service-account*.json
 next-env.d.ts
 .DS_Store
-.terraform/
-*.tfstate
-*.tfstate.*
-*.tfvars
-!*.tfvars.example
-crash.log
+
+infra/tfplan*

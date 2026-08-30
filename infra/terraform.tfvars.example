@@ -1,13 +1,8 @@
-project_id       = "your-google-cloud-project"
-region           = "us-central1"
-firestore_location = "us-central1"
-github_repository = "baskpascal/forge-physical"
+project_id = "supple-voyage-507119-v0" # Project display name: coup
+region     = "us-central1"
 
-# Set only after pushing the immutable image.
-# backend_image = "us-central1-docker.pkg.dev/your-google-cloud-project/forge-physical/backend:GIT_SHA"
+# Set this after the bootstrap apply creates Artifact Registry and the image is pushed.
+image = "us-central1-docker.pkg.dev/coup/forge-physical/backend:bootstrap"
 
-# Add the real token outside Terraform, then pin its numeric version here.
-# wokwi_secret_version = "1"
-
-# Set after deploying the Vercel frontend.
-# public_build_url = "https://forge-physical.example"
+# Optional: enables GitHub Actions OIDC federation.
+# github_repository = "OWNER/forge-physical"

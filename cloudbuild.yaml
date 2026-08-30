@@ -7,9 +7,6 @@ substitutions:
   _IMAGE_TAG: manual
   _PUBLIC_BUILD_URL: https://example.vercel.app
   _PUBLIC_API_URL: https://api.example.com
-  _WOKWI_SECRET: wokwi-cli-token
-  # Pin production secret versions. Rotate by creating a version and changing this value.
-  _WOKWI_SECRET_VERSION: '1'
 
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -35,7 +32,6 @@ steps:
       - '--command=python'
       - '--args=-m,hardware_build.run_job'
       - '--set-env-vars=BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL}'
-      - '--set-secrets=WOKWI_CLI_TOKEN=${_WOKWI_SECRET}:${_WOKWI_SECRET_VERSION}'
       - '--task-timeout=30m'
       - '--memory=2Gi'
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk

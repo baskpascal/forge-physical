@@ -141,11 +141,10 @@ The included [cloudbuild.yaml](cloudbuild.yaml) builds and deploys:
 The Next.js frontend deploys separately to Vercel. Only public `NEXT_PUBLIC_*` values belong in
 Vercel environment variables; they are expected to be visible in the browser bundle.
 
-Production uses dedicated `forge-api` and `forge-worker` service accounts with least-privilege IAM
-and ADC. `WOKWI_CLI_TOKEN` is injected from Secret Manager at job startup. GitHub Actions uses OIDC
-Workload Identity Federation and stores no Google service-account JSON. The complete, copyable IAM,
-WIF, Secret Manager, local ADC, and Vercel setup is in
-[docs/cloud-security.md](docs/cloud-security.md).
+Production is provisioned reproducibly from [infra/](infra/README.md) with dedicated `forge-api` and
+`forge-worker` service accounts and ADC. The Terraform configuration creates an empty Wokwi Secret
+Manager secret but never stores a token in state; until a token version is deliberately added, Wokwi
+truthfully reports `unavailable_due_to_missing_credentials`.
 
 ## Verification
 
