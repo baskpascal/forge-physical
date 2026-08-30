@@ -5,8 +5,7 @@ substitutions:
   _WORKER_JOB: forge-worker
   _GEMINI_MODEL: gemini-3.5-flash
   _IMAGE_TAG: manual
-  _PUBLIC_BUILD_URL: https://example.vercel.app
-  _PUBLIC_API_URL: https://api.example.com
+  _PUBLIC_BUILD_URL: http://localhost:3000
 
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -45,7 +44,7 @@ steps:
       - '--region=${_REGION}'
       - '--service-account=forge-api@$PROJECT_ID.iam.gserviceaccount.com'
       - '--allow-unauthenticated'
-      - '--set-env-vars=BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL},PUBLIC_BUILD_URL=${_PUBLIC_BUILD_URL},PUBLIC_API_URL=${_PUBLIC_API_URL},CLOUD_RUN_JOB_NAME=projects/$PROJECT_ID/locations/${_REGION}/jobs/${_WORKER_JOB}'
+      - '--set-env-vars=BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL},PUBLIC_BUILD_URL=${_PUBLIC_BUILD_URL},CLOUD_RUN_JOB_NAME=projects/$PROJECT_ID/locations/${_REGION}/jobs/${_WORKER_JOB}'
 
 images:
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:${_IMAGE_TAG}'

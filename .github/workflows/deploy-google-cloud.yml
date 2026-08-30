@@ -45,4 +45,4 @@ jobs:
             --service-account="projects/${{ vars.GCP_PROJECT_ID }}/serviceAccounts/${{ vars.GCP_SERVICE_ACCOUNT }}" \
             --gcs-source-staging-dir="gs://${{ vars.GCP_PROJECT_ID }}-forge-build-source/source" \
             --config=cloudbuild.yaml \
-            --substitutions="_REGION=${{ vars.GCP_REGION }},_IMAGE_TAG=${GITHUB_SHA},_PUBLIC_BUILD_URL=${{ vars.PUBLIC_BUILD_URL }},_PUBLIC_API_URL=${{ vars.PUBLIC_API_URL }}"
+            --substitutions="_REGION=${{ vars.GCP_REGION }},_IMAGE_TAG=${GITHUB_SHA}"

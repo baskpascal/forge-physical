@@ -161,6 +161,13 @@ Vertex AI's multi-region `us` endpoint with `gemini-3.5-flash`.
 `python -m hardware_build.integration_check` is run in the Cloud Run Job and performs live probes;
 configuration alone is never reported as runtime verification.
 
+## Keyless Google Cloud CI/CD
+
+The production deploy path is verified as GitHub Actions OIDC -> Google Cloud Workload Identity
+Federation -> `forge-build` -> Cloud Build -> Artifact Registry -> Cloud Run. The federation is
+restricted to `baskpascal/forge-physical`; no long-lived Google Cloud service-account key or JSON
+credential is stored in GitHub.
+
 ## Verification
 
 ```powershell
