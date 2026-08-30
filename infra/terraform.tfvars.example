@@ -1,0 +1,13 @@
+project_id       = "your-google-cloud-project"
+region           = "us-central1"
+firestore_location = "us-central1"
+github_repository = "baskpascal/forge-physical"
+
+# Set only after pushing the immutable image.
+# backend_image = "us-central1-docker.pkg.dev/your-google-cloud-project/forge-physical/backend:GIT_SHA"
+
+# Add the real token outside Terraform, then pin its numeric version here.
+# wokwi_secret_version = "1"
+
+# Set after deploying the Vercel frontend.
+# public_build_url = "https://forge-physical.example"

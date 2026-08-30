@@ -21,3 +21,9 @@ artifacts/
 *service-account*.json
 next-env.d.ts
 .DS_Store
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
