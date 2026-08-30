@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,7 +17,7 @@ from .settings import Settings, get_settings
 from .simulation import run_wokwi
 
 
-def _result(status: str, detail: str) -> dict[str, str | bool]:
+def _result(status: str, detail: str) -> dict[str, object]:
     return {"implemented": True, "status": status, "detail": detail}
 
 
@@ -42,15 +43,26 @@ def check_vertex(settings: Settings, adc_error: dict | None) -> dict:
         client = genai.Client(
             vertexai=True,
             project=settings.google_cloud_project,
-            location=settings.google_cloud_region,
+            location=settings.vertex_location,
         )
+        started = time.monotonic()
         response = client.models.generate_content(
             model=settings.gemini_model,
             contents="Reply with exactly: FORGE_VERTEX_OK",
         )
         if "FORGE_VERTEX_OK" not in (response.text or ""):
             return _result("runtime_failed", "Vertex AI responded, but the verification marker was absent.")
-        return _result("runtime_verified", f"Vertex AI generated content with {settings.gemini_model}.")
+        result = _result(
+            "runtime_verified",
+            f"Vertex AI generated content with {settings.gemini_model} in {settings.vertex_location}.",
+        )
+        result.update(
+            project=settings.google_cloud_project,
+            model=settings.gemini_model,
+            location=settings.vertex_location,
+            latency_ms=round((time.monotonic() - started) * 1000),
+        )
+        return result
     except Exception as exc:
         return _result("runtime_failed", redact_text(f"{type(exc).__name__}: {exc}", settings))
 

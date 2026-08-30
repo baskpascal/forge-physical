@@ -4,6 +4,9 @@ Terraform creates only the production MVP dependencies: Artifact Registry, Fires
 artifact bucket, least-privilege runtime/build identities, the Cloud Run API and worker Job, and an
 empty Wokwi secret. It never stores a secret value in state.
 
+Infrastructure runs in `us-central1`; Gemini 3.5 Flash inference uses independent multi-region
+`VERTEX_LOCATION=us` on the API and worker.
+
 ## Bootstrap and deploy
 
 Authenticate with OAuth/ADC, then use the same project in Terraform:
@@ -32,6 +35,23 @@ After apply, use `terraform output -raw api_url` for `/health`, and execute the 
 `BUILD_ID`; that proves it is executable but not a real build. A real API `prototype_start` call
 sets the override.
 
-To enable Wokwi after receiving a token, add a Secret Manager version interactively and update the
-Cloud Run Job through a separate, reviewable Terraform change. Do not add the token to this file,
-Terraform variables, GitHub, or Cloud Build substitutions.
+To add or rotate Wokwi without exposing it in Terraform state, pass the token only through standard
+input: `gcloud secrets versions add wokwi-cli-token --data-file=-`. The Job reads Secret Manager
+`latest`; do not add the token to Terraform variables, GitHub, or Cloud Build substitutions.
+
+## GitHub Actions WIF
+
+The repository is restricted to `baskpascal/forge-physical` by the provider condition and the
+service-account principal binding. After applying Terraform, set these GitHub Actions repository
+variables from Terraform outputs (no JSON key is used):
+
+```powershell
+terraform output -raw github_workload_identity_provider # GCP_WORKLOAD_IDENTITY_PROVIDER
+terraform output -raw github_deploy_service_account      # GCP_DEPLOY_SERVICE_ACCOUNT
+# GCP_BUILD_SERVICE_ACCOUNT=forge-build@supple-voyage-507119-v0.iam.gserviceaccount.com
+# GCP_PROJECT_ID=supple-voyage-507119-v0
+# GCP_REGION=us-central1
+```
+
+The checked-in workflow uses GitHub OIDC, stages source in the dedicated build-source bucket, and
+submits Cloud Build as `forge-build`. It does not use a service-account key.

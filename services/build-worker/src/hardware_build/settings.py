@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     google_cloud_project: str | None = None
     google_cloud_region: str = "us-central1"
+    vertex_location: str = "us"
     google_genai_use_vertexai: bool = True
     gemini_model: str = "gemini-3.5-flash"
     build_store: str = "local"

@@ -1,11 +1,12 @@
 locals {
-  name_prefix     = "forge"
-  repository_name = "forge-physical"
-  artifact_bucket = "${var.project_id}-forge-artifacts"
-  api_sa          = "forge-api@${var.project_id}.iam.gserviceaccount.com"
-  worker_sa       = "forge-worker@${var.project_id}.iam.gserviceaccount.com"
-  build_sa        = "forge-build@${var.project_id}.iam.gserviceaccount.com"
-  deploy_sa       = "forge-github-deploy@${var.project_id}.iam.gserviceaccount.com"
+  name_prefix         = "forge"
+  repository_name     = "forge-physical"
+  artifact_bucket     = "${var.project_id}-forge-artifacts"
+  build_source_bucket = "${var.project_id}-forge-build-source"
+  api_sa              = "forge-api@${var.project_id}.iam.gserviceaccount.com"
+  worker_sa           = "forge-worker@${var.project_id}.iam.gserviceaccount.com"
+  build_sa            = "forge-build@${var.project_id}.iam.gserviceaccount.com"
+  deploy_sa           = "forge-github-deploy@${var.project_id}.iam.gserviceaccount.com"
 }
 
 resource "google_project_service" "required" {
@@ -46,6 +47,15 @@ resource "google_storage_bucket" "artifacts" {
   versioning {
     enabled = true
   }
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_storage_bucket" "build_source" {
+  name                        = local.build_source_bucket
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = false
 
   depends_on = [google_project_service.required]
 }
@@ -135,6 +145,7 @@ resource "google_secret_manager_secret_iam_member" "worker_wokwi" {
 resource "google_project_iam_member" "build_roles" {
   for_each = toset([
     "roles/artifactregistry.writer",
+    "roles/cloudbuild.builds.builder",
     "roles/logging.logWriter",
     "roles/run.admin",
   ])
@@ -142,6 +153,18 @@ resource "google_project_iam_member" "build_roles" {
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${local.build_sa}"
+}
+
+resource "google_secret_manager_secret_iam_member" "build_views_wokwi" {
+  secret_id = google_secret_manager_secret.wokwi.secret_id
+  role      = "roles/secretmanager.viewer"
+  member    = "serviceAccount:${local.build_sa}"
+}
+
+resource "google_storage_bucket_iam_member" "build_reads_source" {
+  bucket = google_storage_bucket.build_source.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${local.build_sa}"
 }
 
 resource "google_service_account_iam_member" "build_runtime_user" {
@@ -191,12 +214,25 @@ resource "google_cloud_run_v2_job" "worker" {
           value = var.region
         }
         env {
+          name  = "VERTEX_LOCATION"
+          value = "us"
+        }
+        env {
           name  = "GOOGLE_GENAI_USE_VERTEXAI"
           value = "true"
         }
         env {
           name  = "GEMINI_MODEL"
           value = "gemini-3.5-flash"
+        }
+        env {
+          name = "WOKWI_CLI_TOKEN"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.wokwi.secret_id
+              version = "latest"
+            }
+          }
         }
       }
     }
@@ -255,6 +291,10 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "GOOGLE_CLOUD_REGION"
         value = var.region
+      }
+      env {
+        name  = "VERTEX_LOCATION"
+        value = "us"
       }
       env {
         name  = "GOOGLE_GENAI_USE_VERTEXAI"
@@ -340,4 +380,11 @@ resource "google_service_account_iam_member" "github_uses_build" {
   service_account_id = google_service_account.build.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${local.deploy_sa}"
+}
+
+resource "google_storage_bucket_iam_member" "github_stages_source" {
+  count  = var.github_repository == null ? 0 : 1
+  bucket = google_storage_bucket.build_source.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${local.deploy_sa}"
 }

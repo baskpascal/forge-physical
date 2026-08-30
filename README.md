@@ -142,9 +142,24 @@ The Next.js frontend deploys separately to Vercel. Only public `NEXT_PUBLIC_*` v
 Vercel environment variables; they are expected to be visible in the browser bundle.
 
 Production is provisioned reproducibly from [infra/](infra/README.md) with dedicated `forge-api` and
-`forge-worker` service accounts and ADC. The Terraform configuration creates an empty Wokwi Secret
-Manager secret but never stores a token in state; until a token version is deliberately added, Wokwi
-truthfully reports `unavailable_due_to_missing_credentials`.
+`forge-worker` service accounts and ADC. The Terraform configuration never stores a Wokwi token in
+state; the worker receives it only as a Secret Manager reference.
+
+## Google Cloud Runtime Verification
+
+Production infrastructure runs in `us-central1`; Gemini inference is independently configured to
+Vertex AI's multi-region `us` endpoint with `gemini-3.5-flash`.
+
+| Integration | Runtime evidence |
+| --- | --- |
+| Cloud Run API | `https://forge-api-rldj6ghw7q-uc.a.run.app/health` returned healthy. |
+| Firestore | Worker service-account write/read/delete probe verified. |
+| Cloud Storage | Worker service-account upload/download/delete probe verified. |
+| Vertex AI | Cloud Run Job called Gemini 3.5 Flash in `us`: `runtime_verified` (1,179 ms). |
+| Wokwi | Token and CLI are configured, but no Wokwi project scenario was supplied; not claimed as runtime-verified. |
+
+`python -m hardware_build.integration_check` is run in the Cloud Run Job and performs live probes;
+configuration alone is never reported as runtime verification.
 
 ## Verification
 

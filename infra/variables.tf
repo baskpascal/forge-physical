@@ -23,6 +23,6 @@ variable "public_build_url" {
 variable "github_repository" {
   description = "Optional GitHub owner/repository for OIDC federation, e.g. owner/forge-physical."
   type        = string
-  default     = null
+  default     = "baskpascal/forge-physical"
   nullable    = true
 }
