@@ -102,6 +102,36 @@ def test_derives_pins_deduplicates_dependencies_and_is_deterministic(tmp_path: P
     assert first_ini.count("Adafruit Unified Sensor") == 1
 
 
+def test_base_monitor_flows_sensor_and_encoder_telemetry_to_oled(tmp_path: Path):
+    files = generate_firmware(
+        _hardware(["ssd1306-oled", "dht22", "ky-040"]),
+        tmp_path,
+    )
+    source = files["source"].read_text(encoding="utf-8")
+
+    assert "telemetry.temperature_c = sensor.readTemperature();" in source
+    assert "telemetry.humidity_percent = sensor.readHumidity();" in source
+    assert "telemetry.encoder_delta +=" in source
+    assert 'display.print("Temp: ");' in source
+    assert 'display.print("Humidity: ");' in source
+    assert 'display.print("Knob: ");' in source
+    assert "display.println(telemetry.encoder_delta);" in source
+    loop_start = source.index("void loop()")
+    assert source.index("telemetry.temperature_c = sensor.readTemperature();", loop_start) < source.index(
+        "render_display(telemetry);", loop_start
+    )
+
+
+def test_oled_without_sensor_or_encoder_renders_safe_empty_telemetry(tmp_path: Path):
+    files = generate_firmware(_hardware(["ssd1306-oled"]), tmp_path)
+    source = files["source"].read_text(encoding="utf-8")
+
+    assert "float temperature_c = NAN;" in source
+    assert "float humidity_percent = NAN;" in source
+    assert "int encoder_delta = 0;" in source
+    assert "render_display(telemetry);" in source
+
+
 def test_fails_explicitly_for_incomplete_or_incompatible_hardware_ir(tmp_path: Path):
     missing_pin = _hardware(["dht22"]).model_copy(update={"connections": []})
     with pytest.raises(ValueError, match=r"Missing signal connection for sensor\.SDA"):

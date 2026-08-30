@@ -9,7 +9,7 @@ from google.cloud import run_v2
 
 from .models import Build, BuildEvent, BuildStage, StartBuildResponse, now_iso
 from .orchestrator import BuildOrchestrator
-from .planning import supported_update_change
+from .planning import product_has_motion_sensing, supported_update_change
 from .security import redact_text
 from .settings import Settings, get_settings
 from .storage import BuildStore, get_store
@@ -71,6 +71,12 @@ def update_build(build_id: str, change: str, *, dispatch: bool = True, store: Bu
         raise ValueError(
             "Unsupported prototype update. This release supports adding motion/orientation sensing."
         )
+    has_motion_hardware = bool(
+        parent.hardware
+        and any(component.component_id == "mpu6050" for component in parent.hardware.components)
+    )
+    if has_motion_hardware or product_has_motion_sensing(parent.product_spec, parent.prompt):
+        raise ValueError("Motion sensing is already present in the parent build.")
     prompt = f"{parent.prompt}\n\nRequested update: {change}"
     return create_build(prompt, dispatch=dispatch, store=store, settings=settings, parent=parent)
 

@@ -15,6 +15,7 @@ class FirmwareFragment:
     helpers: str = ""
     setup: str = ""
     loop: str = ""
+    post_loop: str = ""
     i2c_pins: tuple[int, int] | None = None
 
 
@@ -80,7 +81,7 @@ def _ssd1306(hardware: HardwareIR, component: ComponentInstance) -> FirmwareFrag
 constexpr int {prefix}_SCREEN_HEIGHT = 64;
 constexpr int {prefix}_OLED_RESET = -1;
 Adafruit_SSD1306 {name}({prefix}_SCREEN_WIDTH, {prefix}_SCREEN_HEIGHT, &Wire, {prefix}_OLED_RESET);""",
-        helpers=f"""void render_{name}(const char* message) {{
+        helpers=f"""void render_{name}(const MonitorTelemetry& telemetry) {{
   {name}.clearDisplay();
   {name}.setTextColor(SSD1306_WHITE);
   {name}.setTextSize(1);
@@ -88,7 +89,14 @@ Adafruit_SSD1306 {name}({prefix}_SCREEN_WIDTH, {prefix}_SCREEN_HEIGHT, &Wire, {p
   {name}.println("FORGE / PHYSICAL");
   {name}.drawLine(0, 12, 127, 12, SSD1306_WHITE);
   {name}.setCursor(0, 20);
-  {name}.println(message);
+  {name}.print("Temp: ");
+  if (isnan(telemetry.temperature_c)) {name}.println("--");
+  else {{ {name}.print(telemetry.temperature_c, 1); {name}.println(" C"); }}
+  {name}.print("Humidity: ");
+  if (isnan(telemetry.humidity_percent)) {name}.println("--");
+  else {{ {name}.print(telemetry.humidity_percent, 1); {name}.println(" %"); }}
+  {name}.print("Knob: ");
+  {name}.println(telemetry.encoder_delta);
   {name}.display();
 }}""",
         setup=f"""if (!{name}.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {{
@@ -96,7 +104,8 @@ Adafruit_SSD1306 {name}({prefix}_SCREEN_WIDTH, {prefix}_SCREEN_HEIGHT, &Wire, {p
     return;
   }}
   Serial.println("CHECK:OLED_INIT:PASS");
-  render_{name}("Firmware ready");""",
+  render_{name}(telemetry);""",
+        post_loop=f"render_{name}(telemetry);",
         i2c_pins=i2c_pins,
     )
 
@@ -115,9 +124,9 @@ def _dht22(hardware: HardwareIR, component: ComponentInstance) -> FirmwareFragme
 DHT {name}({prefix}_DHT_PIN, DHT22);""",
         setup=f"""{name}.begin();
   Serial.println("CHECK:SENSOR_INIT:PASS");""",
-        loop=f"""float {name}_humidity = {name}.readHumidity();
-  float {name}_temperature = {name}.readTemperature();
-  if (!isnan({name}_temperature) && !isnan({name}_humidity)) {{
+        loop=f"""telemetry.humidity_percent = {name}.readHumidity();
+  telemetry.temperature_c = {name}.readTemperature();
+  if (!isnan(telemetry.temperature_c) && !isnan(telemetry.humidity_percent)) {{
     Serial.println("CHECK:TEMPERATURE_READ:PASS");
   }}""",
     )
@@ -133,7 +142,6 @@ def _ky040(hardware: HardwareIR, component: ComponentInstance) -> FirmwareFragme
         declarations=f"""constexpr int {prefix}_ENCODER_CLK = {clk};
 constexpr int {prefix}_ENCODER_DT = {dt};
 constexpr int {prefix}_ENCODER_SW = {switch};
-int {name}_delta = 0;
 int {name}_last_clk = HIGH;""",
         setup=f"""pinMode({prefix}_ENCODER_CLK, INPUT_PULLUP);
   pinMode({prefix}_ENCODER_DT, INPUT_PULLUP);
@@ -141,7 +149,7 @@ int {name}_last_clk = HIGH;""",
   Serial.println("CHECK:ENCODER_INIT:PASS");""",
         loop=f"""int {name}_clk = digitalRead({prefix}_ENCODER_CLK);
   if ({name}_clk != {name}_last_clk && {name}_clk == LOW) {{
-    {name}_delta += digitalRead({prefix}_ENCODER_DT) == {name}_clk ? -1 : 1;
+    telemetry.encoder_delta += digitalRead({prefix}_ENCODER_DT) == {name}_clk ? -1 : 1;
     Serial.println("CHECK:ENCODER:PASS");
   }}
   {name}_last_clk = {name}_clk;""",

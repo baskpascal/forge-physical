@@ -46,6 +46,13 @@ def _render_source(fragments: list[FirmwareFragment]) -> str:
     includes.extend(include for fragment in fragments for include in fragment.includes)
 
     sections = ["\n".join(f"#include <{include}>" for include in _unique(includes))]
+    sections.append("""struct MonitorTelemetry {
+  float temperature_c = NAN;
+  float humidity_percent = NAN;
+  int encoder_delta = 0;
+};
+
+MonitorTelemetry telemetry;""")
     if i2c_pins is not None:
         sections.append(
             f"constexpr int I2C_SDA = {i2c_pins[0]};\nconstexpr int I2C_SCL = {i2c_pins[1]};"
@@ -64,6 +71,7 @@ def _render_source(fragments: list[FirmwareFragment]) -> str:
     sections.append("void setup() {\n" + _indent("\n".join(setup_lines)) + "\n}")
 
     loop_lines = [fragment.loop for fragment in fragments if fragment.loop]
+    loop_lines.extend(fragment.post_loop for fragment in fragments if fragment.post_loop)
     loop_lines.append("delay(750);")
     sections.append("void loop() {\n" + _indent("\n".join(loop_lines)) + "\n}")
     return "\n\n".join(sections) + "\n"

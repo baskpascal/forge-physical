@@ -20,6 +20,21 @@ MOTION_UPDATE_TERMS = (
     "gyroscope",
     "mpu6050",
 )
+_MOTION_UPDATE_TARGETS = (
+    r"motion sensing",
+    r"movement sensing",
+    r"orientation sensing",
+    r"(?:an? )?imu(?: sensor)?",
+    r"(?:an? )?mpu[ -]?6050(?: imu| motion sensor| sensor)?",
+    r"(?:an? )?accelerometer(?: and (?:a )?gyroscope)?",
+    r"(?:a )?gyroscope(?: and (?:an? )?accelerometer)?",
+)
+_MOTION_UPDATE_PATTERN = re.compile(
+    rf"(?:please )?(?:add|include|enable|integrate) "
+    rf"(?:{'|'.join(_MOTION_UPDATE_TARGETS)})"
+    rf"(?: support| capability)?[.!]?",
+    flags=re.IGNORECASE,
+)
 
 
 def scope_violation(prompt: str) -> str | None:
@@ -32,8 +47,18 @@ def scope_violation(prompt: str) -> str | None:
 
 def supported_update_change(change: str) -> bool:
     """Return whether an update belongs to the one verified iterative-design slice."""
-    lowered = change.lower()
-    return scope_violation(change) is None and any(term in lowered for term in MOTION_UPDATE_TERMS)
+    normalized = " ".join(change.strip().split())
+    return scope_violation(normalized) is None and _MOTION_UPDATE_PATTERN.fullmatch(normalized) is not None
+
+
+def product_has_motion_sensing(spec: ProductSpec | None, prompt: str) -> bool:
+    """Detect the already-applied feature from persisted state or a positive product request."""
+    if spec and "motion sensing" in spec.features:
+        return True
+    lowered = " ".join(prompt.lower().split())
+    if re.search(r"\b(?:without|remove|disable|exclude|no)\b[^.\n]{0,40}\b(?:motion|imu|mpu[ -]?6050|accelerometer|gyroscope)\b", lowered):
+        return False
+    return any(term in lowered for term in MOTION_UPDATE_TERMS)
 
 
 def deterministic_product_spec(prompt: str) -> ProductSpec:

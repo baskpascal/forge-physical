@@ -1,8 +1,11 @@
+import pytest
+
 from hardware_build.catalog import CATALOG
 from hardware_build.planning import (
     deterministic_hardware_ir,
     deterministic_product_spec,
     scope_violation,
+    supported_update_change,
 )
 from hardware_build.validators import validate_hardware
 
@@ -70,3 +73,35 @@ def test_shared_gpio_is_only_allowed_for_matching_i2c_lines():
 def test_unsafe_scope_is_rejected():
     assert scope_violation("Build a 230V mains outlet controller") == "mains electricity"
     assert deterministic_product_spec("Build a medical diagnostic device").supported is False
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "Add motion sensing",
+        "Please include movement sensing.",
+        "Enable orientation sensing capability",
+        "Integrate an IMU sensor",
+        "Add an MPU6050 motion sensor",
+        "Add an accelerometer and a gyroscope",
+    ],
+)
+def test_motion_update_accepts_only_honestly_supported_variants(change: str):
+    assert supported_update_change(change)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "Remove motion sensing and add GPS",
+        "Add motion sensing and GPS",
+        "Do not add motion sensing",
+        "Remove motion sensing",
+        "Add GPS",
+        "Improve motion sensing",
+        "Add a camera with motion detection",
+        "Add an IMU or GPS",
+    ],
+)
+def test_motion_update_rejects_composition_negation_and_out_of_slice_intents(change: str):
+    assert not supported_update_change(change)

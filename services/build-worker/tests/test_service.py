@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from hardware_build.models import ToolResult
+from hardware_build.models import ComponentInstance, HardwareIR, ProductSpec, ToolResult
 from hardware_build.orchestrator import BuildOrchestrator
 from hardware_build.service import create_build, dispatch_build, update_build
 from hardware_build.settings import Settings
@@ -89,6 +89,100 @@ def test_update_rejects_unsupported_change_without_mutating_parent(tmp_path: Pat
         raise AssertionError("Unsupported updates must fail explicitly")
 
     assert store.get(original.build_id).model_dump(mode="json") == parent_before
+
+
+def test_update_rejects_composed_motion_and_gps_without_creating_child(tmp_path: Path):
+    store = LocalJsonBuildStore(tmp_path)
+    settings = Settings(build_data_dir=tmp_path, build_artifact_dir=tmp_path / "artifacts")
+    original = create_build(
+        "Build a supported low voltage desk monitor",
+        dispatch=False,
+        store=store,
+        settings=settings,
+    )
+    build_files_before = set(store.root.glob("*.json"))
+
+    try:
+        update_build(
+            original.build_id,
+            "Remove motion sensing and add GPS",
+            dispatch=False,
+            store=store,
+            settings=settings,
+        )
+    except ValueError as exc:
+        assert "Unsupported prototype update" in str(exc)
+    else:
+        raise AssertionError("Composed updates must fail before creating a child")
+
+    assert set(store.root.glob("*.json")) == build_files_before
+
+
+def test_update_rejects_duplicate_motion_from_parent_prompt_without_creating_child(tmp_path: Path):
+    store = LocalJsonBuildStore(tmp_path)
+    settings = Settings(build_data_dir=tmp_path, build_artifact_dir=tmp_path / "artifacts")
+    original = create_build(
+        "Build a desk monitor with an MPU6050 motion sensor",
+        dispatch=False,
+        store=store,
+        settings=settings,
+    )
+    build_files_before = set(store.root.glob("*.json"))
+
+    try:
+        update_build(
+            original.build_id,
+            "Add motion sensing",
+            dispatch=False,
+            store=store,
+            settings=settings,
+        )
+    except ValueError as exc:
+        assert "already present" in str(exc)
+    else:
+        raise AssertionError("Duplicate motion updates must fail before creating a child")
+
+    assert set(store.root.glob("*.json")) == build_files_before
+
+
+def test_update_rejects_duplicate_motion_from_persisted_parent_state(tmp_path: Path):
+    store = LocalJsonBuildStore(tmp_path)
+    settings = Settings(build_data_dir=tmp_path, build_artifact_dir=tmp_path / "artifacts")
+    original = create_build(
+        "Build a supported low voltage desk monitor",
+        dispatch=False,
+        store=store,
+        settings=settings,
+    )
+    parent = store.get(original.build_id)
+    parent.product_spec = ProductSpec(
+        intent=parent.prompt,
+        description="Monitor with inertial sensing",
+        features=["motion sensing"],
+    )
+    parent.hardware = HardwareIR(
+        board=ComponentInstance(ref="board", component_id="esp32-s3-devkit", label="Board"),
+        components=[ComponentInstance(ref="motion", component_id="mpu6050", label="IMU")],
+        connections=[],
+        power=[],
+    )
+    store.save(parent)
+    build_files_before = set(store.root.glob("*.json"))
+
+    try:
+        update_build(
+            original.build_id,
+            "Integrate an IMU sensor",
+            dispatch=False,
+            store=store,
+            settings=settings,
+        )
+    except ValueError as exc:
+        assert "already present" in str(exc)
+    else:
+        raise AssertionError("Persisted parent state must prevent a duplicate child")
+
+    assert set(store.root.glob("*.json")) == build_files_before
 
 
 def test_motion_build_verification_records_additional_scenario_checks(
