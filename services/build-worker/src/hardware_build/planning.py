@@ -11,6 +11,15 @@ UNSUPPORTED_PATTERNS = {
     "safety-critical system": r"\b(brake controller|life support|airbag)\b",
     "high-power system": r"\b(high[- ]power|kilowatt|motor drive)\b",
 }
+MOTION_UPDATE_TERMS = (
+    "motion",
+    "movement",
+    "orientation",
+    "imu",
+    "accelerometer",
+    "gyroscope",
+    "mpu6050",
+)
 
 
 def scope_violation(prompt: str) -> str | None:
@@ -19,6 +28,12 @@ def scope_violation(prompt: str) -> str | None:
         if re.search(pattern, lowered):
             return reason
     return None
+
+
+def supported_update_change(change: str) -> bool:
+    """Return whether an update belongs to the one verified iterative-design slice."""
+    lowered = change.lower()
+    return scope_violation(change) is None and any(term in lowered for term in MOTION_UPDATE_TERMS)
 
 
 def deterministic_product_spec(prompt: str) -> ProductSpec:
@@ -35,6 +50,8 @@ def deterministic_product_spec(prompt: str) -> ProductSpec:
         features.append("OLED status display")
     if any(word in lowered for word in ("rotary", "knob", "encoder")):
         features.append("rotary input")
+    if any(word in lowered for word in MOTION_UPDATE_TERMS):
+        features.append("motion sensing")
     power = "battery" if "battery" in lowered else "usb"
     return ProductSpec(
         intent=prompt,
@@ -52,6 +69,9 @@ def deterministic_hardware_ir(spec: ProductSpec) -> HardwareIR:
         ComponentInstance(ref="sensor", component_id=component_ids[1], label="Temperature sensor"),
         ComponentInstance(ref="encoder", component_id=component_ids[2], label="Rotary knob"),
     ]
+    has_motion_sensing = "motion sensing" in spec.features
+    if has_motion_sensing:
+        components.append(ComponentInstance(ref="motion", component_id="mpu6050", label="Motion sensor"))
     def link(source_ref: str, source_pin: str, target_ref: str, target_pin: str, interface: str, reason: str) -> Connection:
         return Connection(**{"from": Endpoint(ref=source_ref, pin=source_pin), "to": Endpoint(ref=target_ref, pin=target_pin), "interface": interface, "reason": reason})
     connections = [
@@ -62,8 +82,16 @@ def deterministic_hardware_ir(spec: ProductSpec) -> HardwareIR:
         link("board", "GPIO6", "encoder", "DT", "gpio", "Encoder direction"),
         link("board", "GPIO7", "encoder", "SW", "gpio", "Encoder switch"),
     ]
+    if has_motion_sensing:
+        connections.extend([
+            link("board", "GPIO8", "motion", "SDA", "i2c", "Shared I2C data for motion sensor"),
+            link("board", "GPIO9", "motion", "SCL", "i2c", "Shared I2C clock for motion sensor"),
+        ])
     power = []
-    for ref in ("display", "sensor", "encoder"):
+    powered_refs = ["display", "sensor", "encoder"]
+    if has_motion_sensing:
+        powered_refs.append("motion")
+    for ref in powered_refs:
         power.append(link("board", "3V3", ref, "VCC", "power", f"3.3V supply for {ref}"))
         power.append(link("board", "GND", ref, "GND", "power", f"Common ground for {ref}"))
     return HardwareIR(

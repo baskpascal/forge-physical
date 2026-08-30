@@ -9,6 +9,7 @@ from google.cloud import run_v2
 
 from .models import Build, BuildEvent, BuildStage, StartBuildResponse, now_iso
 from .orchestrator import BuildOrchestrator
+from .planning import supported_update_change
 from .security import redact_text
 from .settings import Settings, get_settings
 from .storage import BuildStore, get_store
@@ -66,6 +67,10 @@ def create_build(prompt: str, *, dispatch: bool = True, store: BuildStore | None
 def update_build(build_id: str, change: str, *, dispatch: bool = True, store: BuildStore | None = None, settings: Settings | None = None) -> StartBuildResponse:
     store = store or get_store()
     parent = store.get(build_id)
+    if not supported_update_change(change):
+        raise ValueError(
+            "Unsupported prototype update. This release supports adding motion/orientation sensing."
+        )
     prompt = f"{parent.prompt}\n\nRequested update: {change}"
     return create_build(prompt, dispatch=dispatch, store=store, settings=settings, parent=parent)
 

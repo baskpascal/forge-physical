@@ -120,6 +120,7 @@ class VerificationReport(BaseModel):
     physical_assembly: str = "not_verified"
     emi_emc: str = "not_verified"
     thermals: str = "not_verified"
+    scenario_checks: list[str] = Field(default_factory=list)
 
 
 class BuildEvent(BaseModel):

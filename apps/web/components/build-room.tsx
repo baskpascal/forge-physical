@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { ProductCanvas } from "@/components/product-canvas";
+import { BuildRoomDetails } from "@/components/build-room-details";
 import { useBuildStream } from "@/hooks/use-build-stream";
 import { deriveStageState } from "@/lib/build-stage";
-import type { BuildStage, Event, Verification } from "@/types/build";
+import type { BuildStage } from "@/types/build";
 
 const stages: Array<{ key: BuildStage; label: string }> = [
   { key: "idea", label: "Idea" }, { key: "components", label: "Components" },
@@ -18,21 +19,6 @@ function iconFor(state: string) {
   if (state === "active") return "●";
   if (state === "unavailable") return "—";
   return "○";
-}
-
-function EventFeed({ events }: { events: Event[] }) {
-  const visible = events.slice(-5).reverse();
-  return <div className="agent-feed">{visible.map((event, index) => <div className={`agent-line ${event.status}`} key={event.id}><span>{index === 0 ? "›" : ""}</span><p>{event.message}</p><time>{new Date(event.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></div>)}</div>;
-}
-
-function VerificationPanel({ report }: { report?: Verification }) {
-  if (!report) return <div className="empty-detail">Verification evidence will appear after deterministic checks run.</div>;
-  const verified = [
-    ["Electronics", report.electrical_compatibility], ["Firmware", report.firmware_compilation],
-    ["Simulation", report.simulation], ["Enclosure", report.enclosure_generation],
-  ];
-  const unverified = [["Physical assembly", report.physical_assembly], ["EMI / EMC", report.emi_emc], ["Thermals", report.thermals]];
-  return <div className="verification-grid"><div><p className="detail-label">DIGITAL EVIDENCE</p>{verified.map(([label, status]) => <div className="verification-row" key={label}><span className={status}>{status === "passed" ? "✓" : status === "failed" ? "!" : "—"}</span><b>{label}</b><em>{status.replaceAll("_", " ")}</em></div>)}</div><div className="not-verified"><p className="detail-label">NOT PHYSICALLY VERIFIED</p>{unverified.map(([label]) => <div className="verification-row" key={label}><span>—</span><b>{label}</b><em>not verified</em></div>)}</div></div>;
 }
 
 export function BuildRoom({ buildId }: { buildId: string }) {
@@ -53,10 +39,7 @@ export function BuildRoom({ buildId }: { buildId: string }) {
           <div className="rail-agent"><div className="agent-title"><span>AGENT</span><b>{build.agent_mode}</b></div><p>{activity}</p><div className="agent-pulse"><i /><i /><i /></div></div>
         </aside>
       </section>
-      <section className="lower-deck">
-        <div className="deck-tabs"><button className="active">Engineering</button><button>Electronics</button><button>Software</button><button>Tests</button><button>3D</button><span>{Object.keys(build.artifact_paths).length} ARTIFACTS</span></div>
-        <div className="deck-content"><VerificationPanel report={build.verification} /><div className="timeline-panel"><p className="detail-label">AGENT ACTIONS</p><EventFeed events={build.events} /></div></div>
-      </section>
+      <BuildRoomDetails build={build} />
       <footer className="room-footer"><span>{build.product_spec?.description ?? build.prompt}</span><span>Physical assembly is never implied by digital verification.</span></footer>
     </main>
   );

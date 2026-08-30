@@ -1,22 +1,28 @@
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from google.cloud import storage
 
-from .artifacts import artifact_files
+from .artifacts import (
+    artifact_files,
+    artifact_media_type,
+    build_public_artifact_paths,
+    public_artifact_path,
+)
 from .mcp_server import mcp
 from .models import StartBuildRequest, UpdateBuildRequest
 from .orchestrator import run_build
 from .service import artifacts_payload, create_build, status_payload, update_build
 from .settings import get_settings
-from .storage import BuildNotFoundError
+from .storage import BuildNotFoundError, get_store
 
 
 @asynccontextmanager
@@ -71,6 +77,8 @@ def update(build_id: str, request: UpdateBuildRequest) -> dict:
         return update_build(build_id, request.change).model_dump(mode="json")
     except BuildNotFoundError as exc:
         raise HTTPException(404, "Build not found") from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @app.get("/api/builds/{build_id}")
@@ -108,6 +116,38 @@ def artifact_archive(build_id: str) -> StreamingResponse:
             raise HTTPException(404, "No artifacts are available yet")
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="forge-{build_id}.zip"'})
+
+
+@app.get("/api/builds/{build_id}/artifacts/{artifact_path:path}")
+def artifact(build_id: str, artifact_path: str) -> Response:
+    """Serve a single public build artifact without exposing the storage backend."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", build_id):
+        raise HTTPException(404, "Artifact not found")
+    canonical = public_artifact_path(artifact_path)
+    if canonical is None:
+        raise HTTPException(404, "Artifact not found")
+    try:
+        build = get_store().get(build_id)
+    except BuildNotFoundError as exc:
+        raise HTTPException(404, "Build not found") from exc
+    if canonical not in build_public_artifact_paths(build):
+        raise HTTPException(404, "Artifact not found")
+
+    settings = get_settings()
+    build_root = (settings.build_artifact_dir / build_id).resolve()
+    local_path = (build_root / canonical).resolve()
+    if local_path.is_relative_to(build_root) and local_path.is_file():
+        return FileResponse(local_path, media_type=artifact_media_type(canonical))
+
+    if settings.artifact_bucket:
+        blob = storage.Client().bucket(settings.artifact_bucket).blob(f"{build_id}/{canonical}")
+        if blob.exists():
+            return Response(
+                content=blob.download_as_bytes(),
+                media_type=artifact_media_type(canonical),
+            )
+
+    raise HTTPException(404, "Artifact is not available yet")
 
 
 @app.post("/internal/run/{build_id}", status_code=202)

@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { artifactUrl } from "@/lib/artifact-url";
 import type { Build } from "@/types/build";
 
 const EnclosureView = dynamic(() => import("./enclosure-view").then((module) => module.EnclosureView), { ssr: false });
@@ -10,7 +11,9 @@ const stageRank = { idea: 0, components: 1, electronics: 2, firmware: 3, simulat
 export function ProductCanvas({ build }: { build: Build }) {
   const rank = stageRank[build.stage] ?? 0;
   if (rank >= 5 && build.enclosure) {
-    return <div className="product-canvas three-canvas"><EnclosureView /><div className="canvas-caption"><span>PARAMETRIC ENCLOSURE</span><b>84 × 64 × 30 mm</b></div></div>;
+    const baseUrl = artifactUrl(build.id, build.artifact_paths.enclosure_base);
+    const lidUrl = artifactUrl(build.id, build.artifact_paths.enclosure_lid);
+    return <div className="product-canvas three-canvas"><EnclosureView baseUrl={baseUrl} lidUrl={lidUrl} /><div className="canvas-caption"><span>PARAMETRIC ENCLOSURE</span><b>BASE + LID STL</b></div></div>;
   }
   return (
     <div className={`product-canvas blueprint rank-${rank}`}>
