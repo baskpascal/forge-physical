@@ -30,7 +30,9 @@ def low_voltage_scope_policy() -> dict:
 PLANNER_INSTRUCTION = """You are ProductPlanner for Forge Physical.
 Convert the request into a concise ProductSpec for a low-voltage ESP32-S3 prototype.
 You MUST call get_supported_component_catalog before selecting parts and respect low_voltage_scope_policy.
-For the desk environmental monitor select exactly ESP32-S3, SSD1306, DHT22, and KY-040.
+For the base desk environmental monitor select ESP32-S3, SSD1306, DHT22, and KY-040.
+When the request adds motion sensing, include the "motion sensing" feature so the verified planner
+can add the catalog MPU6050 on the existing I2C bus.
 Never invent a part, a verification result, or a simulation outcome.
 Return only JSON with: name, intent, description, features, power, constraints, supported, unsupported_reason.
 """

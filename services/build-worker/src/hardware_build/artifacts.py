@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import mimetypes
+from pathlib import Path, PurePosixPath
 
 from google.cloud import storage
 from pydantic import BaseModel
@@ -9,27 +10,66 @@ from pydantic import BaseModel
 from .models import Build
 from .settings import Settings
 
+_PUBLIC_ARTIFACTS = {
+    "hardware/product.json",
+    "hardware/hardware.json",
+    "hardware/verification.json",
+    "hardware/firmware/platformio.ini",
+    "hardware/firmware/.pio/build/esp32-s3-devkitc-1/firmware.bin",
+    "hardware/firmware/.pio/build/esp32-s3-devkitc-1/firmware.elf",
+}
+_PUBLIC_ARTIFACT_PREFIXES = (
+    "hardware/firmware/src/",
+    "hardware/simulation/",
+    "hardware/enclosure/",
+)
+_ARTIFACT_MEDIA_TYPES = {
+    ".bin": "application/octet-stream",
+    ".cpp": "text/plain; charset=utf-8",
+    ".elf": "application/octet-stream",
+    ".ini": "text/plain; charset=utf-8",
+    ".json": "application/json",
+    ".stl": "model/stl",
+}
+
+
+def public_artifact_path(value: str) -> str | None:
+    """Return a canonical public artifact path, or None for unsafe/internal paths."""
+    if not value or "\\" in value:
+        return None
+    path = PurePosixPath(value)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        return None
+    canonical = path.as_posix()
+    if canonical in _PUBLIC_ARTIFACTS or canonical.startswith(_PUBLIC_ARTIFACT_PREFIXES):
+        return canonical
+    return None
+
+
+def build_public_artifact_paths(build: Build) -> set[str]:
+    """Canonicalize only the public artifacts explicitly recorded on a build."""
+    allowed: set[str] = set()
+    build_prefix = f"{build.id}/"
+    for stored_path in build.artifact_paths.values():
+        relative = stored_path.removeprefix(build_prefix)
+        canonical = public_artifact_path(relative)
+        if canonical is not None:
+            allowed.add(canonical)
+    return allowed
+
+
+def artifact_media_type(path: str) -> str:
+    suffix = PurePosixPath(path).suffix.lower()
+    return _ARTIFACT_MEDIA_TYPES.get(suffix) or mimetypes.guess_type(path)[0] or "application/octet-stream"
+
 
 def artifact_files(build_root: Path):
     """Yield only user-facing artifacts, excluding tool caches and object files."""
-    exact = {
-        "hardware/product.json",
-        "hardware/hardware.json",
-        "hardware/verification.json",
-        "hardware/firmware/platformio.ini",
-        "hardware/firmware/.pio/build/esp32-s3-devkitc-1/firmware.bin",
-        "hardware/firmware/.pio/build/esp32-s3-devkitc-1/firmware.elf",
-    }
-    prefixes = (
-        "hardware/firmware/src/",
-        "hardware/simulation/",
-        "hardware/enclosure/",
-    )
     for path in build_root.rglob("*"):
         if not path.is_file():
             continue
         relative = path.relative_to(build_root).as_posix()
-        if relative in exact or relative.startswith(prefixes):
+        if public_artifact_path(relative):
             yield path
 
 

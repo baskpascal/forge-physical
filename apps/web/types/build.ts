@@ -12,11 +12,17 @@ export type Event = {
 };
 
 export type ComponentInstance = { ref: string; component_id: string; label: string };
+export type Connection = { from: { ref: string; pin: string }; to: { ref: string; pin: string }; interface: string; reason: string };
 export type Hardware = {
   board: ComponentInstance;
   components: ComponentInstance[];
-  connections: Array<{ from: { ref: string; pin: string }; to: { ref: string; pin: string }; interface: string; reason: string }>;
+  connections: Connection[];
+  power: Connection[];
+  constraints: string[];
 };
+
+export type ValidationIssue = { code: string; message: string; path: string; severity: "error" | "warning" };
+export type ValidationResult = { passed: boolean; checks: Record<string, boolean>; issues: ValidationIssue[] };
 
 export type ToolResult = { status: string; summary: string; evidence: Record<string, unknown> };
 export type Verification = {
@@ -27,6 +33,7 @@ export type Verification = {
   physical_assembly: string;
   emi_emc: string;
   thermals: string;
+  scenario_checks?: string[];
 };
 
 export type Build = {
@@ -37,8 +44,9 @@ export type Build = {
   progress: number;
   version: number;
   parent_build_id?: string;
-  product_spec?: { name: string; description: string; features: string[]; power: string };
+  product_spec?: { name: string; description: string; features: string[]; power: string; constraints: string[]; supported: boolean; unsupported_reason?: string };
   hardware?: Hardware;
+  electrical_validation?: ValidationResult;
   firmware?: ToolResult;
   simulation?: ToolResult;
   enclosure?: ToolResult;

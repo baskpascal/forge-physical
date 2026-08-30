@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess
 from pathlib import Path
 
+from .firmware_modules import FirmwareFragment, compose_fragments
 from .models import HardwareIR, ToolResult
 from .security import redact_text
 from .settings import Settings
@@ -15,99 +15,76 @@ platform = espressif32@6.12.0
 board = esp32-s3-devkitc-1
 framework = arduino
 monitor_speed = 115200
-lib_deps =
-  adafruit/Adafruit GFX Library@^1.11.11
-  adafruit/Adafruit SSD1306@^2.5.13
-  adafruit/DHT sensor library@^1.4.6
+{lib_deps}
 build_flags = -D ARDUINO_USB_CDC_ON_BOOT=1
 """
 
-MAIN_CPP = r'''#include <Arduino.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-#include <DHT.h>
+def _unique(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
 
-constexpr int SCREEN_WIDTH = 128;
-constexpr int SCREEN_HEIGHT = 64;
-constexpr int OLED_RESET = -1;
-constexpr int DHT_PIN = 4;
-constexpr int ENCODER_CLK = 5;
-constexpr int ENCODER_DT = 6;
-constexpr int ENCODER_SW = 7;
-constexpr int I2C_SDA = 8;
-constexpr int I2C_SCL = 9;
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-DHT dht(DHT_PIN, DHT22);
-volatile int encoderDelta = 0;
-int lastClk = HIGH;
+def _indent(block: str, spaces: int = 2) -> str:
+    prefix = " " * spaces
+    return "\n".join(f"{prefix}{line}" if line else "" for line in block.splitlines())
 
-void render(float temperature, float humidity) {
-  display.clearDisplay();
-  display.setTextColor(SSD1306_WHITE);
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.println("FORGE / ENVIRONMENT");
-  display.drawLine(0, 12, 127, 12, SSD1306_WHITE);
-  display.setTextSize(2);
-  display.setCursor(0, 20);
-  if (isnan(temperature)) display.print("--.- C");
-  else { display.print(temperature, 1); display.print(" C"); }
-  display.setTextSize(1);
-  display.setCursor(0, 48);
-  display.print("Humidity ");
-  if (isnan(humidity)) display.print("--");
-  else display.print(humidity, 0);
-  display.print("%  Knob ");
-  display.print(encoderDelta);
-  display.display();
-}
 
-void setup() {
-  Serial.begin(115200);
-  pinMode(ENCODER_CLK, INPUT_PULLUP);
-  pinMode(ENCODER_DT, INPUT_PULLUP);
-  pinMode(ENCODER_SW, INPUT_PULLUP);
-  Wire.begin(I2C_SDA, I2C_SCL);
-  dht.begin();
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println("CHECK:OLED_INIT:FAIL");
-    return;
-  }
-  Serial.println("CHECK:BOOT:PASS");
-  Serial.println("CHECK:OLED_INIT:PASS");
-  Serial.println("CHECK:SENSOR_INIT:PASS");
-  render(NAN, NAN);
-}
+def _render_platformio(fragments: list[FirmwareFragment]) -> str:
+    libraries = _unique([library for fragment in fragments for library in fragment.libraries])
+    if not libraries:
+        return PLATFORMIO_INI.format(lib_deps="").replace("\n\n", "\n", 1)
+    deps = "lib_deps =\n" + "\n".join(f"  {library}" for library in libraries)
+    return PLATFORMIO_INI.format(lib_deps=deps)
 
-void loop() {
-  int clk = digitalRead(ENCODER_CLK);
-  if (clk != lastClk && clk == LOW) {
-    encoderDelta += digitalRead(ENCODER_DT) == clk ? -1 : 1;
-    Serial.println("CHECK:ENCODER:PASS");
-  }
-  lastClk = clk;
-  float humidity = dht.readHumidity();
-  float temperature = dht.readTemperature();
-  if (!isnan(temperature)) Serial.println("CHECK:TEMPERATURE_READ:PASS");
-  render(temperature, humidity);
-  delay(750);
-}
-'''
+
+def _render_source(fragments: list[FirmwareFragment]) -> str:
+    includes = ["Arduino.h"]
+    i2c_pins = next(
+        (fragment.i2c_pins for fragment in fragments if fragment.i2c_pins is not None), None
+    )
+    if i2c_pins is not None:
+        includes.append("Wire.h")
+    includes.extend(include for fragment in fragments for include in fragment.includes)
+
+    sections = ["\n".join(f"#include <{include}>" for include in _unique(includes))]
+    sections.append("""struct MonitorTelemetry {
+  float temperature_c = NAN;
+  float humidity_percent = NAN;
+  int encoder_delta = 0;
+};
+
+MonitorTelemetry telemetry;""")
+    if i2c_pins is not None:
+        sections.append(
+            f"constexpr int I2C_SDA = {i2c_pins[0]};\nconstexpr int I2C_SCL = {i2c_pins[1]};"
+        )
+    declarations = [fragment.declarations for fragment in fragments if fragment.declarations]
+    if declarations:
+        sections.append("\n\n".join(declarations))
+    helpers = [fragment.helpers for fragment in fragments if fragment.helpers]
+    if helpers:
+        sections.append("\n\n".join(helpers))
+
+    setup_lines = ["Serial.begin(115200);", 'Serial.println("CHECK:BOOT:PASS");']
+    if i2c_pins is not None:
+        setup_lines.append("Wire.begin(I2C_SDA, I2C_SCL);")
+    setup_lines.extend(fragment.setup for fragment in fragments if fragment.setup)
+    sections.append("void setup() {\n" + _indent("\n".join(setup_lines)) + "\n}")
+
+    loop_lines = [fragment.loop for fragment in fragments if fragment.loop]
+    loop_lines.extend(fragment.post_loop for fragment in fragments if fragment.post_loop)
+    loop_lines.append("delay(750);")
+    sections.append("void loop() {\n" + _indent("\n".join(loop_lines)) + "\n}")
+    return "\n\n".join(sections) + "\n"
 
 
 def generate_firmware(hardware: HardwareIR, firmware_dir: Path) -> dict[str, Path]:
-    required = {component.component_id for component in hardware.components}
-    expected = {"ssd1306-oled", "dht22", "ky-040"}
-    if not expected.issubset(required):
-        raise ValueError("Firmware template supports the verified desk monitor component set only")
+    fragments = compose_fragments(hardware)
     source_dir = firmware_dir / "src"
     source_dir.mkdir(parents=True, exist_ok=True)
     ini = firmware_dir / "platformio.ini"
     source = source_dir / "main.cpp"
-    ini.write_text(PLATFORMIO_INI, encoding="utf-8")
-    code = MAIN_CPP
+    ini.write_text(_render_platformio(fragments), encoding="utf-8")
+    code = _render_source(fragments)
     if os.getenv("INJECT_COMPILE_FAILURE_ONCE") == "true":
         code = code.replace("display.begin", "display.begin_broken", 1)
     source.write_text(code, encoding="utf-8")
@@ -146,7 +123,6 @@ def deterministic_repair(source_path: Path, compiler_output: str) -> bool:
     for broken, valid in repairs.items():
         if broken in repaired and (broken in compiler_output or "not declared" in compiler_output):
             repaired = repaired.replace(broken, valid)
-    repaired = re.sub(r"constexpr int I2C_SDA = \d+;", "constexpr int I2C_SDA = 8;", repaired)
     if repaired == source:
         return False
     source_path.write_text(repaired, encoding="utf-8")

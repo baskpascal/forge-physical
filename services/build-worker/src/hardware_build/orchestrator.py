@@ -43,7 +43,8 @@ class BuildOrchestrator:
             reporter.emit("plan.completed", BuildStage.IDEA, "passed", f"Product brief ready: {outcome.spec.name}", progress=15, build_status=BuildStatus.BUILDING, metadata={"agent_mode": outcome.mode})
 
             build.hardware = deterministic_hardware_ir(outcome.spec)
-            reporter.emit("component.selected", BuildStage.COMPONENTS, "passed", "Selected ESP32-S3, SSD1306 OLED, DHT22 and KY-040 from the verified catalog.", progress=28, metadata={"component_ids": [component.component_id for component in build.hardware.components]})
+            component_ids = [component.component_id for component in build.hardware.components]
+            reporter.emit("component.selected", BuildStage.COMPONENTS, "passed", "Selected supported components from the verified catalog.", progress=28, metadata={"component_ids": component_ids})
             reporter.emit("electronics.generated", BuildStage.ELECTRONICS, "running", "Hardware IR generated; checking every rail and signal…", progress=36)
             build.electrical_validation = validate_hardware(build.hardware)
             if not build.electrical_validation.passed:
@@ -116,6 +117,20 @@ class BuildOrchestrator:
                 firmware_compilation=build.firmware.status,
                 simulation=build.simulation.status,
                 enclosure_generation=build.enclosure.status,
+                scenario_checks=[
+                    "boot",
+                    "OLED initialization",
+                    "sensor initialization",
+                    "temperature read",
+                    *(
+                        ["motion sensor initialization", "motion read"]
+                        if any(
+                            component.component_id == "mpu6050"
+                            for component in build.hardware.components
+                        )
+                        else []
+                    ),
+                ],
             )
             verification_path = workspace.write_json("verification.json", build.verification)
             build.artifact_paths["verification"] = workspace.relative(verification_path)

@@ -30,7 +30,7 @@ def validate_hardware(hardware: HardwareIR) -> ValidationResult:
 
     all_connections = hardware.connections + hardware.power
     seen: Counter[tuple[str, str, str, str]] = Counter()
-    board_gpio_usage: defaultdict[str, list[str]] = defaultdict(list)
+    board_gpio_usage: defaultdict[str, list[tuple[str, str, str]]] = defaultdict(list)
     connected_targets: set[tuple[str, str]] = set()
 
     for index, connection in enumerate(all_connections):
@@ -52,7 +52,7 @@ def validate_hardware(hardware: HardwareIR) -> ValidationResult:
                 checks["voltage_compatible"] = False
                 issues.append(ValidationIssue(code="voltage_mismatch", message=f"{target.ref} requires {target_def.voltage}V", path=path))
         if source.ref == hardware.board.ref and source.pin.startswith("GPIO"):
-            board_gpio_usage[source.pin].append(f"{target.ref}.{target.pin}")
+            board_gpio_usage[source.pin].append((target.ref, target.pin, connection.interface))
             capability = source_def.pins.get(source.pin, "") if source_def else ""
             required = "i2c_sda" if target.pin == "SDA" and connection.interface == "i2c" else "i2c_scl" if target.pin == "SCL" and connection.interface == "i2c" else "gpio"
             if required not in capability:
@@ -64,11 +64,20 @@ def validate_hardware(hardware: HardwareIR) -> ValidationResult:
         checks["no_duplicate_connections"] = False
         issues.extend(ValidationIssue(code="duplicate_connection", message="Duplicate connection", path="connections") for _ in duplicates)
 
-    conflicts = {pin: targets for pin, targets in board_gpio_usage.items() if len(targets) > 1}
+    conflicts = {
+        pin: targets
+        for pin, targets in board_gpio_usage.items()
+        if len(targets) > 1
+        and not (
+            all(interface == "i2c" for _, _, interface in targets)
+            and len({target_pin for _, target_pin, _ in targets}) == 1
+        )
+    }
     if conflicts:
         checks["no_gpio_conflicts"] = False
         for pin, targets in conflicts.items():
-            issues.append(ValidationIssue(code="gpio_conflict", message=f"{pin} is assigned to {', '.join(targets)}", path=f"board.{pin}"))
+            target_names = [f"{ref}.{target_pin}" for ref, target_pin, _ in targets]
+            issues.append(ValidationIssue(code="gpio_conflict", message=f"{pin} is assigned to {', '.join(target_names)}", path=f"board.{pin}"))
 
     addresses: defaultdict[str, list[str]] = defaultdict(list)
     for ref, definition in definitions.items():
