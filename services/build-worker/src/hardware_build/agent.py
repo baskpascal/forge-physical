@@ -84,8 +84,12 @@ def _json_object(text: str) -> dict:
 def _normalize_product_spec_payload(payload: dict) -> dict:
     """Accept Gemini's descriptive power object while preserving the public ProductSpec contract."""
     power = payload.get("power")
-    if isinstance(power, dict):
-        description = " ".join(str(value) for value in power.values()).lower()
+    if not isinstance(power, str) or power not in {"usb", "battery"}:
+        description = (
+            " ".join(str(value) for value in power.values())
+            if isinstance(power, dict)
+            else str(power)
+        ).lower()
         payload = {**payload, "power": "battery" if "battery" in description else "usb"}
     features = payload.get("features")
     if isinstance(features, dict):
