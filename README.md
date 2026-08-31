@@ -183,7 +183,7 @@ Vertex AI's multi-region `us` endpoint with `gemini-3.5-flash`.
 | Cloud Storage | Worker service-account upload/download/delete probe verified. |
 | Vertex AI | Cloud Run Job called Gemini 3.5 Flash in `us`: `runtime_verified` (1,179 ms). |
 | Additional Google AI models | `gemini-embedding-001`, `text-embedding-005`, and `text-multilingual-embedding-002` each returned a 128-dimensional runtime probe. |
-| Wokwi | Golden-path project, lint, scenario, and validation are implemented. The current Secret Manager value is rejected by Wokwi as unauthorized and is not claimed as runtime-verified. |
+| Wokwi | Production build `061bf9dfcf33` passed CLI lint, the 25°C/35°C scenario, GPIO assertions, and all required serial markers. |
 
 `python -m hardware_build.integration_check` is run in the Cloud Run Job and performs live probes;
 configuration alone is never reported as runtime verification.
@@ -191,7 +191,7 @@ configuration alone is never reported as runtime verification.
 ## Hackathon evidence
 
 - Hosted Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>
-- Latest production evidence build: <https://forge-web-rldj6ghw7q-uc.a.run.app/build/b4381f2ebfbd>
+- Golden production evidence build: <https://forge-web-rldj6ghw7q-uc.a.run.app/build/061bf9dfcf33>
 - [Submission evidence index](docs/submission-evidence.md)
 - [Architecture diagram](docs/architecture.png)
 - [Under-four-minute demo script](docs/demo-script.md)

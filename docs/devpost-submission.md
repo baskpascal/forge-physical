@@ -28,14 +28,14 @@ COUP is the hardware execution layer for coding agents. It accepts a supported l
 ### Additional Google model evidence
 
 The three additional models perform a real prompt-to-product-spec semantic-alignment check; they
-are not decorative model calls. Immutable evidence is stored in build `b4381f2ebfbd` and its
+are not decorative model calls. Immutable evidence is stored in build `061bf9dfcf33` and its
 `semantic-alignment.json` artifact. Raw vectors are not persisted.
 
 | Model ID | Function | Runtime evidence |
 | --- | --- | --- |
-| `gemini-embedding-001` | Embed prompt and generated spec for alignment | `runtime_verified`, 128 dimensions, similarity 0.9794, 413 ms |
-| `text-embedding-005` | Independent English semantic-alignment measurement | `runtime_verified`, 128 dimensions, similarity 0.8821, 499 ms |
-| `text-multilingual-embedding-002` | Independent multilingual alignment measurement | `runtime_verified`, 128 dimensions, similarity 0.9551, 630 ms |
+| `gemini-embedding-001` | Embed prompt and generated spec for alignment | `runtime_verified`, 128 dimensions, similarity 0.9801, 369 ms |
+| `text-embedding-005` | Independent English semantic-alignment measurement | `runtime_verified`, 128 dimensions, similarity 0.8895, 294 ms |
+| `text-multilingual-embedding-002` | Independent multilingual alignment measurement | `runtime_verified`, 128 dimensions, similarity 0.9353, 313 ms |
 
 ## What makes it agentic
 
@@ -61,13 +61,13 @@ For clean-machine reproduction, follow the Docker and verification commands in t
 [README](https://github.com/baskpascal/forge-physical#verification). No Google Cloud or Wokwi
 credential is required to inspect the hosted evidence and download public artifacts.
 
-For an immediately inspectable production run, open [build `b4381f2ebfbd`](https://forge-web-rldj6ghw7q-uc.a.run.app/build/b4381f2ebfbd). It demonstrates Google ADK planning, the intentional compiler failure, `EngineeringAgent`'s evidence-grounded repair, successful PlatformIO recompilation, Firestore events, Cloud Storage artifacts, and generated STL files. Wokwi correctly remains `unavailable` because the deployed Secret Manager value is not a valid CI token; this is not represented as a successful hardware simulation.
+For the complete golden production run, open [build `061bf9dfcf33`](https://forge-web-rldj6ghw7q-uc.a.run.app/build/061bf9dfcf33). It completed with Google ADK/Gemini planning, nine deterministic electrical checks, a real PlatformIO `firmware.bin`, Wokwi lint plus 25°C/35°C GPIO and serial assertions, Firestore events, 14 Cloud Storage artifacts, and generated base/lid STL files. Build [`b4381f2ebfbd`](https://forge-web-rldj6ghw7q-uc.a.run.app/build/b4381f2ebfbd) separately preserves the intentional compile-failure → EngineeringAgent repair → successful recompile evidence.
 
 ## Known limitations
 
 - The supported catalog is intentionally limited to low-voltage ESP32-S3 prototypes.
 - Physical assembly, EMI/EMC and thermals remain `not_verified`; digital evidence never implies a fabricated physical test.
-- Wokwi is not described as runtime-verified until a production build passes lint, the 25°C/35°C scenario, GPIO assertions and required serial markers.
+- Wokwi evidence applies to the supported temperature-alarm path; it does not imply arbitrary hardware support.
 - The public endpoint is protected by concurrency and per-client admission limits; a busy judge receives an explicit retry response rather than a silently dropped build.
 
 ## Eligibility facts to fill before submission
