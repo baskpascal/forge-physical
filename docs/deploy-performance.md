@@ -36,6 +36,35 @@ builder. The pipeline now performs that digest check in the Cloud SDK deployment
 Because cache state and machine type both changed, these figures are directional evidence,
 not a controlled machine-size A/B test.
 
+The first successful optimized full deployment is GitHub Actions run
+[`33438745298`](https://github.com/baskpascal/forge-physical/actions/runs/33438745298) and
+Cloud Build `c13d5fcc-295d-4ce5-9e6b-c7dd4dc080a1` (commit `e913a19`). Its Cloud Build wall
+clock was 488.5 s (8:08.5), a 52% reduction from the 17:00.5 baseline. The end-to-end
+Actions run took about 9:43, including a roughly 60 s Cloud Build queue delay. It narrowly
+missed the <=8 min p95 target because worker build and push remained the critical path:
+
+| Phase | Baseline | First successful optimized | Change |
+|---|---:|---:|---:|
+| API Docker build | 125.3 s | 148.5 s | +19% |
+| API push | 40.3 s | 53.1 s | +32% |
+| Worker Docker build | 279.5 s | 278.9 s | ~0% |
+| Worker push | 229.5 s | 187.0 s | -19% |
+| Web Docker build | 162.8 s | 141.0 s | -13% |
+| Web push | 7.9 s | 9.4 s | +19% |
+| Cloud Run Job deploy | 85.4 s | 13.2 s | -85% |
+| API Cloud Run deploy | 59.8 s | 69.9 s | +17% |
+| Web Cloud Run deploy | 15.1 s | 92.0 s | +509% |
+| **Cloud Build wall clock** | **1,020.5 s** | **488.5 s** | **-52%** |
+
+The phase comparison is intentionally not presented as a controlled per-step A/B: cache
+state, deploy state, and machine type differ. Wall-clock is the production outcome. The
+worker result exposed that the application image copied `/root/.platformio` out of the
+toolchain image, repacking and re-uploading the largest filesystem tree for every Python
+change. Version `v2` makes the toolchain the worker's direct parent image and adds only the
+application virtualenv above it. This preserves the real preheated compiler while allowing
+Artifact Registry to reuse the stable base layers. A successful production run is still
+required before claiming the resulting worker build/push reduction as measured.
+
 ## Deployment routing and cache contract
 
 - Documentation and tests do not deploy production.

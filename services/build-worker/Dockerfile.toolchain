@@ -3,8 +3,9 @@ FROM python:3.13-slim
 ARG WOKWI_CLI_VERSION=0.26.1
 ARG WOKWI_CLI_SHA256=72d968150babaf7532c47ab7741eb85a95a6c3e3cfef91ffbcfdb677fd38e811
 ENV PATH="/opt/platformio-venv/bin:$PATH" \
-    PLATFORMIO_LIBDEPS_DIR=/root/.platformio/libdeps \
-    PLATFORMIO_BUILD_CACHE_DIR=/root/.platformio/build-cache
+    PLATFORMIO_CORE_DIR=/opt/platformio \
+    PLATFORMIO_LIBDEPS_DIR=/opt/platformio/libdeps \
+    PLATFORMIO_BUILD_CACHE_DIR=/opt/platformio/build-cache
 
 RUN python -m venv /opt/platformio-venv \
     && pip install --no-cache-dir --retries 10 --timeout 60 platformio==6.1.19
@@ -22,5 +23,15 @@ RUN apt-get update \
     && echo "${WOKWI_CLI_SHA256}  /usr/local/bin/wokwi-cli" | sha256sum --check --strict \
     && chmod 0755 /usr/local/bin/wokwi-cli \
     && rm -rf /var/lib/apt/lists/*
+
+# This image is the worker's stable base, not a source image whose large
+# toolchain tree is copied into every application build. Keeping the shared
+# directories writable lets PlatformIO populate deterministic per-project
+# intermediates without running the Cloud Run Job as root.
+RUN useradd --create-home --uid 10001 forge \
+    && mkdir -p /app/artifacts /app/data /opt/platformio/build-cache \
+    && chown -R forge:forge /app /opt/platformio
+WORKDIR /app
+USER forge
 
 LABEL org.opencontainers.image.description="COUP stable ESP32 PlatformIO and Wokwi toolchain"

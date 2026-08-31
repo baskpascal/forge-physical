@@ -10,7 +10,6 @@ DOC_ONLY_ROOTS = ("docs/", ".github/ISSUE_TEMPLATE/")
 DOC_ONLY_FILES = {"README.md", "HACKATHON.md", "LICENSE"}
 NO_RUNTIME_ROOTS = ("services/build-worker/tests/",)
 NO_RUNTIME_FILES = {
-    ".dockerignore",
     ".gitignore",
     "AGENTS.md",
 }
@@ -47,6 +46,10 @@ def classify(paths: list[str]) -> dict[str, bool]:
         elif path in {"package.json", "package-lock.json"}:
             # The root npm lockfile only feeds the web image today.
             flags["web"] = True
+        elif path == ".dockerignore":
+            # This changes every Docker build context even though it is not
+            # copied into an image, so conservatively rebuild all runtimes.
+            flags.update(api=True, worker=True, web=True)
         elif path.startswith("services/build-worker/tooling/") or path == (
             "services/build-worker/Dockerfile.toolchain"
         ):
