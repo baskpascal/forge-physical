@@ -93,7 +93,7 @@ def _generate_temperature_alarm_wokwi(firmware_dir: Path, simulation_dir: Path) 
                 ],
                 "connections": [
                     ["esp:4", "sensor:SDA", "green", ["h20"]],
-                    ["esp:3V3", "sensor:VCC", "red", ["h30"]],
+                    ["esp:3V3.1", "sensor:VCC", "red", ["h30"]],
                     ["esp:GND.1", "sensor:GND", "black", ["h40"]],
                     ["esp:10", "led_resistor:1", "orange", ["h50"]],
                     ["led_resistor:2", "warning_led:A", "orange", ["h60"]],
@@ -165,7 +165,7 @@ def run_wokwi(settings: Settings, simulation_dir: Path, firmware_passed: bool) -
     if len(scenario_paths) != 1:
         return ToolResult(status="failed", summary="Wokwi project must contain exactly one automation scenario.")
     scenario = scenario_paths[0]
-    environment = {**os.environ, "WOKWI_CLI_TOKEN": settings.wokwi_cli_token}
+    environment = {**os.environ, "WOKWI_CLI_TOKEN": settings.wokwi_cli_token.strip()}
     lint = subprocess.run(
         [executable, "lint"], cwd=simulation_dir, env=environment, capture_output=True, text=True, timeout=120, check=False,
     )

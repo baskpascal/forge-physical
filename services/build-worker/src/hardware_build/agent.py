@@ -87,6 +87,9 @@ def _normalize_product_spec_payload(payload: dict) -> dict:
     if isinstance(power, dict):
         description = " ".join(str(value) for value in power.values()).lower()
         payload = {**payload, "power": "battery" if "battery" in description else "usb"}
+    features = payload.get("features")
+    if isinstance(features, dict):
+        payload = {**payload, "features": list(features)}
     return payload
 
 

@@ -17,8 +17,14 @@ def test_catalog_is_restricted_and_complete():
 
 
 def test_gemini_power_object_is_normalized_without_using_a_fixture():
-    payload = _normalize_product_spec_payload({"power": {"source": "USB 5V", "operating_voltage": "3.3V"}})
+    payload = _normalize_product_spec_payload(
+        {
+            "power": {"source": "USB 5V", "operating_voltage": "3.3V"},
+            "features": {"temperature alarm": "LED above 30C"},
+        }
+    )
     assert payload["power"] == "usb"
+    assert payload["features"] == ["temperature alarm"]
 
 
 def test_demo_hardware_ir_passes_deterministic_validation():
