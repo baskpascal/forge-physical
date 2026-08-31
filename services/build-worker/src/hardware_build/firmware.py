@@ -86,7 +86,10 @@ def generate_firmware(hardware: HardwareIR, firmware_dir: Path) -> dict[str, Pat
     ini.write_text(_render_platformio(fragments), encoding="utf-8")
     code = _render_source(fragments)
     if os.getenv("INJECT_COMPILE_FAILURE_ONCE") == "true":
-        code = code.replace("display.begin", "display.begin_broken", 1)
+        # Every supported prototype initializes serial output, unlike optional OLED
+        # support. Keep the production-proof fault valid for the temperature-alarm
+        # golden path as well as display-equipped builds.
+        code = code.replace("Serial.begin", "Serial.begin_broken", 1)
     source.write_text(code, encoding="utf-8")
     return {"platformio": ini, "source": source}
 

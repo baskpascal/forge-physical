@@ -75,6 +75,17 @@ def test_temperature_alarm_firmware_emits_observable_wokwi_markers(tmp_path: Pat
     assert "COUP_TEST_PASS" in source
 
 
+def test_compile_failure_injection_applies_to_the_temperature_alarm(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("INJECT_COMPILE_FAILURE_ONCE", "true")
+    hardware = deterministic_hardware_ir(
+        deterministic_product_spec("Create an ESP32 temperature alarm with an LED above 30C")
+    )
+
+    source = generate_firmware(hardware, tmp_path)["source"].read_text(encoding="utf-8")
+
+    assert "Serial.begin_broken(115200);" in source
+
+
 @pytest.mark.parametrize(
     ("component_ids", "expected_markers"),
     [
