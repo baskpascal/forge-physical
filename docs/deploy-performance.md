@@ -65,6 +65,12 @@ application virtualenv above it. This preserves the real preheated compiler whil
 Artifact Registry to reuse the stable base layers. A successful production run is still
 required before claiming the resulting worker build/push reduction as measured.
 
+The branch benchmark submission also exposed a local-source packaging issue: Terraform's
+downloaded provider directory was entering the upload and Docker build context. Adding it
+to both ignore contracts reduced `gcloud meta list-files-for-upload` from 246.2 MiB to
+1.05 MiB (112 files). The first branch run had already uploaded the large archive; subsequent
+runs use the corrected context and are the valid source-upload comparison.
+
 ## Deployment routing and cache contract
 
 - Documentation and tests do not deploy production.

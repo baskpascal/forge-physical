@@ -8,6 +8,7 @@ gha-creds-*.json
 *.key
 .venv
 .platformio-venv
+**/.terraform
 node_modules
 **/.next
 **/__pycache__
