@@ -192,7 +192,7 @@ resource "google_cloud_run_v2_job" "worker" {
       max_retries     = 0
 
       containers {
-        image   = var.image
+        image   = var.worker_image
         command = ["python"]
         args    = ["-m", "hardware_build.run_job"]
 
@@ -285,7 +285,7 @@ resource "google_cloud_run_v2_service" "api" {
     }
 
     containers {
-      image = var.image
+      image = var.api_image
 
       resources {
         limits = {

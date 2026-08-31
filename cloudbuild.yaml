@@ -19,11 +19,25 @@ steps:
       - build
       - -f
       - services/build-worker/Dockerfile
+      - --target
+      - api-runtime
       - -t
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:${_IMAGE_TAG}'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}'
       - .
   - name: gcr.io/cloud-builders/docker
-    args: [push, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:${_IMAGE_TAG}']
+    args: [push, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}']
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - services/build-worker/Dockerfile
+      - --target
+      - worker-runtime
+      - -t
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}'
+      - .
+  - name: gcr.io/cloud-builders/docker
+    args: [push, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}']
   - name: gcr.io/cloud-builders/docker
     args:
       - build
@@ -43,7 +57,7 @@ steps:
       - jobs
       - deploy
       - '${_WORKER_JOB}'
-      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:${_IMAGE_TAG}'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}'
       - '--region=${_REGION}'
       - '--service-account=forge-worker@$PROJECT_ID.iam.gserviceaccount.com'
       - '--command=python'
@@ -58,7 +72,7 @@ steps:
       - run
       - deploy
       - '${_API_SERVICE}'
-      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:${_IMAGE_TAG}'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}'
       - '--region=${_REGION}'
       - '--service-account=forge-api@$PROJECT_ID.iam.gserviceaccount.com'
       - '--allow-unauthenticated'
@@ -76,7 +90,8 @@ steps:
       - '--memory=512Mi'
 
 images:
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:${_IMAGE_TAG}'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}'
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}'
 
 options:
