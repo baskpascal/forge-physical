@@ -19,3 +19,5 @@ but never persists the raw vectors.
 
 Hosted Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>. Add the public repository and demo
 video links immediately before publishing.
+
+Public article: <https://forge-web-rldj6ghw7q-uc.a.run.app/build-story>

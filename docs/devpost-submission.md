@@ -37,6 +37,7 @@ The hardest part was making evidence honest. A CLI exit code is not enough to cl
 
 - API: <https://forge-api-rldj6ghw7q-uc.a.run.app>
 - Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>
+- Build article: <https://forge-web-rldj6ghw7q-uc.a.run.app/build-story>
 - Repository: **currently private; public/judge access pending**
 
 ## Testing instructions
