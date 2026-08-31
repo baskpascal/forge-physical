@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import re
 import zipfile
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -21,7 +22,13 @@ from .artifacts import (
 from .mcp_server import mcp
 from .models import StartBuildRequest, UpdateBuildRequest
 from .orchestrator import run_build
-from .service import artifacts_payload, create_build, status_payload, update_build
+from .service import (
+    artifacts_payload,
+    create_build,
+    dispatch_next_queued,
+    status_payload,
+    update_build,
+)
 from .settings import get_settings
 from .simulation import wokwi_token_is_valid
 from .storage import (
@@ -32,10 +39,30 @@ from .storage import (
 )
 
 
+async def _reconcile_queue() -> None:
+    """Recover orphaned leases even when no browser is polling the queued build."""
+    while True:
+        await asyncio.sleep(settings.build_reconcile_seconds)
+        try:
+            store = get_store()
+            await asyncio.to_thread(store.reconcile_expired_leases)
+            await asyncio.to_thread(dispatch_next_queued, settings, store)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Background queue reconciliation failed")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    async with mcp.session_manager.run():
-        yield
+    reconciler = asyncio.create_task(_reconcile_queue(), name="build-queue-reconciler")
+    try:
+        async with mcp.session_manager.run():
+            yield
+    finally:
+        reconciler.cancel()
+        with suppress(asyncio.CancelledError):
+            await reconciler
 
 
 settings = get_settings()
@@ -68,8 +95,14 @@ def health() -> dict:
         "status": "healthy",
         "integrations": {
             "vertex_ai": {"status": "configured" if settings.gemini_configured else "implemented"},
-            "firestore": {"status": "configured" if settings.build_store == "firestore" and settings.google_cloud_project else "implemented"},
-            "cloud_storage": {"status": "configured" if settings.artifact_bucket else "implemented"},
+            "firestore": {
+                "status": "configured"
+                if settings.build_store == "firestore" and settings.google_cloud_project
+                else "implemented"
+            },
+            "cloud_storage": {
+                "status": "configured" if settings.artifact_bucket else "implemented"
+            },
             "wokwi": {
                 "status": (
                     "configured"
@@ -99,6 +132,14 @@ def _client_key(request: Request) -> str:
 
 def _admission_http_error(exc: BuildAdmissionRejected) -> HTTPException:
     logger.warning("Build admission rejected", extra={"reason": exc.reason})
+    if exc.reason != "client_budget":
+        # Execution capacity is represented by a queued build, never by HTTP 429. A legacy
+        # capacity rejection therefore indicates a transient admission inconsistency.
+        return HTTPException(
+            status_code=503,
+            detail="Build queue is reconciling execution capacity. Retry shortly.",
+            headers={"Retry-After": "5"},
+        )
     return HTTPException(
         status_code=429,
         detail="Per-client build request limit reached. Retry after the indicated delay.",
@@ -183,11 +224,11 @@ def artifact_archive(build_id: str) -> StreamingResponse:
                     archive.write(path, relative)
                     archived += 1
         elif settings.artifact_bucket:
-            blobs = list(storage.Client().list_blobs(settings.artifact_bucket, prefix=f"{build_id}/"))
+            blobs = list(
+                storage.Client().list_blobs(settings.artifact_bucket, prefix=f"{build_id}/")
+            )
             blobs = [
-                blob
-                for blob in blobs
-                if blob.name.removeprefix(f"{build_id}/") in allowed_paths
+                blob for blob in blobs if blob.name.removeprefix(f"{build_id}/") in allowed_paths
             ]
             if not blobs:
                 raise HTTPException(404, "No artifacts are available yet")
@@ -199,7 +240,11 @@ def artifact_archive(build_id: str) -> StreamingResponse:
     if archived == 0:
         raise HTTPException(404, "No artifacts are available yet")
     buffer.seek(0)
-    return StreamingResponse(buffer, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="forge-{build_id}.zip"'})
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="forge-{build_id}.zip"'},
+    )
 
 
 @app.get("/api/builds/{build_id}/artifacts/{artifact_path:path}")
@@ -242,7 +287,10 @@ def internal_run(build_id: str, authorization: str | None = Header(default=None)
     if authorization != f"Bearer {settings.internal_worker_token}":
         raise HTTPException(401, "Invalid worker token")
     import threading
-    threading.Thread(target=run_build, args=(build_id,), daemon=True, name=f"build-{build_id}").start()
+
+    threading.Thread(
+        target=run_build, args=(build_id,), daemon=True, name=f"build-{build_id}"
+    ).start()
     return {"build_id": build_id, "status": "dispatched"}
 
 

@@ -32,7 +32,7 @@ function duration(build: Build) {
 export function terminalSummary(build: Build) {
   if (build.status === "queued") return build.queue_position && build.queue_position > 0
     ? `Waiting for hardware execution slot · Position ${build.queue_position}`
-    : "Queued · waiting for hardware execution slot";
+    : "Queued · starting hardware worker";
   const elapsed = duration(build); if (!terminal.has(build.status)) return `${build.progress}% · ${build.stage.replaceAll("_", " ")}`;
   if (build.status === "completed") return elapsed ? `Completed in ${elapsed}` : "Completed";
   const stop = build.simulation?.status === "failed" || build.simulation?.status === "unavailable" ? "Simulation" : build.stage === "complete" ? "Verification" : build.stage;
@@ -47,12 +47,12 @@ export function BuildRoom({ buildId }: { buildId: string }) {
   return <main className="room-shell">
     <div className="room-topline"><Link href="/">COUP <span>/ Build Room</span></Link><div><span className={`live-dot ${transport}`} />{transport === "firestore" ? "FIRESTORE LIVE" : "CLOUD API STREAM"}<b>{build.id}</b></div></div>
     <header className="build-header"><div><p className="eyebrow">SUPPORTED LOW-VOLTAGE PROTOTYPE</p><h1>{title}</h1><p className="build-result-line">{terminalSummary(build)}</p></div><div className={`status-badge ${build.status}`}><i />{build.status.replaceAll("_", " ")}</div></header>
-    {build.status === "queued" && <p className="queue-notice" role="status">Queued · Waiting for hardware execution slot{build.queue_position && build.queue_position > 0 ? ` · Position: ${build.queue_position}` : ""}</p>}
+    {build.status === "queued" && <p className="queue-notice" role="status">{build.queue_position && build.queue_position > 0 ? `Queued · Waiting for hardware execution slot · Position: ${build.queue_position}` : "Queued · Starting hardware worker"}</p>}
     <section className="build-overview">
       <ProductCanvas build={build} />
       <aside className="receipt-card"><VerificationPanel report={displayVerification(build)} /></aside>
     </section>
-    <ol className="macro-flow" aria-label="Build phases">{macroStages.map((macro) => { const state = macroStageState(build, macro.stages); return <li className={state} key={macro.label}><span>{icon(state)}</span><b>{macro.label}</b><small>{state.replaceAll("_", " ")}</small></li>; })}</ol>
+    <ol className="macro-flow" aria-label="Build phases"><li className={build.status === "queued" ? "active" : "passed"}><span>{build.status === "queued" ? "●" : "✓"}</span><b>QUEUED</b><small>{build.status === "queued" ? "active" : "passed"}</small></li>{macroStages.map((macro) => { const state = macroStageState(build, macro.stages); return <li className={state} key={macro.label}><span>{icon(state)}</span><b>{macro.label}</b><small>{state.replaceAll("_", " ")}</small></li>; })}</ol>
     <p className="overview-copy">{safePlanningCopy(build.product_spec?.description ?? build.prompt)}</p>
     <BuildRoomDetails build={build} />
     <footer className="room-footer"><span>COUP — Infrastructure for agents that build hardware.</span><span>Physical assembly is never implied by digital verification.</span></footer>

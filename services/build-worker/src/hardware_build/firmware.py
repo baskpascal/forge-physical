@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 from .firmware_modules import FirmwareFragment, compose_fragments
+from .incremental import temperature_threshold_c
 from .models import HardwareIR, ToolResult
 from .security import redact_text
 from .settings import Settings
@@ -18,6 +19,7 @@ monitor_speed = 115200
 {lib_deps}
 build_flags = -D ARDUINO_USB_CDC_ON_BOOT=1
 """
+
 
 def _unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
@@ -77,7 +79,9 @@ MonitorTelemetry telemetry;""")
     return "\n\n".join(sections) + "\n"
 
 
-def generate_firmware(hardware: HardwareIR, firmware_dir: Path) -> dict[str, Path]:
+def generate_firmware(
+    hardware: HardwareIR, firmware_dir: Path, prompt: str | None = None
+) -> dict[str, Path]:
     fragments = compose_fragments(hardware)
     source_dir = firmware_dir / "src"
     source_dir.mkdir(parents=True, exist_ok=True)
@@ -85,6 +89,11 @@ def generate_firmware(hardware: HardwareIR, firmware_dir: Path) -> dict[str, Pat
     source = source_dir / "main.cpp"
     ini.write_text(_render_platformio(fragments), encoding="utf-8")
     code = _render_source(fragments)
+    threshold = temperature_threshold_c(prompt or "")
+    code = code.replace(
+        "constexpr float COUP_ALARM_THRESHOLD_C = 30.0f;",
+        f"constexpr float COUP_ALARM_THRESHOLD_C = {threshold:.1f}f;",
+    )
     if os.getenv("INJECT_COMPILE_FAILURE_ONCE") == "true":
         # Every supported prototype initializes serial output, unlike optional OLED
         # support. Keep the production-proof fault valid for the temperature-alarm
@@ -103,14 +112,25 @@ def compile_firmware(settings: Settings, firmware_dir: Path) -> ToolResult:
             evidence={"command": settings.platformio_cmd, "install": "pipx install platformio"},
         )
     completed = subprocess.run(
-        [executable, "run"], cwd=firmware_dir, capture_output=True, text=True, timeout=900, check=False
+        [executable, "run"],
+        cwd=firmware_dir,
+        capture_output=True,
+        text=True,
+        timeout=900,
+        check=False,
     )
     output = redact_text((completed.stdout + "\n" + completed.stderr)[-16000:], settings)
     firmware_bin = firmware_dir / ".pio" / "build" / "esp32-s3-devkitc-1" / "firmware.bin"
     return ToolResult(
         status="passed" if completed.returncode == 0 and firmware_bin.exists() else "failed",
-        summary="PlatformIO compiled the ESP32-S3 firmware." if completed.returncode == 0 else "PlatformIO compilation failed.",
-        evidence={"exit_code": completed.returncode, "output": output, "firmware_bin": str(firmware_bin) if firmware_bin.exists() else None},
+        summary="PlatformIO compiled the ESP32-S3 firmware."
+        if completed.returncode == 0
+        else "PlatformIO compilation failed.",
+        evidence={
+            "exit_code": completed.returncode,
+            "output": output,
+            "firmware_bin": str(firmware_bin) if firmware_bin.exists() else None,
+        },
     )
 
 

@@ -86,3 +86,21 @@ def test_embedding_models_execute_concurrently_and_keep_individual_evidence(monk
     assert [entry["model"] for entry in result.evidence["models"]] == list(
         Settings().embedding_model_ids
     )
+
+
+def test_semantic_alignment_requires_at_least_one_model():
+    settings = Settings(
+        google_cloud_project="test-project",
+        embedding_models="",
+    )
+    spec = ProductSpec(
+        name="Alarm",
+        intent="Alert",
+        description="Alert",
+        features=["temperature alarm"],
+    )
+
+    result = verify_semantic_alignment("Create an alarm", spec, settings)
+
+    assert result.status == "unavailable"
+    assert result.evidence["models"] == []

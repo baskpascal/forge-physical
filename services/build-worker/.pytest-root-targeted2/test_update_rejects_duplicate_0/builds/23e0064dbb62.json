@@ -1,0 +1,43 @@
+{
+  "build": {
+    "id": "23e0064dbb62",
+    "prompt": "Build a desk monitor with an MPU6050 motion sensor",
+    "status": "queued",
+    "stage": "idea",
+    "progress": 0,
+    "version": 1,
+    "parent_build_id": null,
+    "queue_position": null,
+    "dispatch_requested_at": null,
+    "execution_started_at": null,
+    "product_spec": null,
+    "hardware": null,
+    "electrical_validation": null,
+    "semantic_alignment": null,
+    "firmware": null,
+    "simulation": null,
+    "enclosure": null,
+    "verification": null,
+    "artifact_paths": {},
+    "fingerprints": {},
+    "reuse_evidence": [],
+    "timings_ms": {},
+    "agent_mode": "pending",
+    "error": null,
+    "created_at": "2026-08-31T20:39:02.540856+00:00",
+    "updated_at": "2026-08-31T20:39:02.540856+00:00"
+  },
+  "events": [
+    {
+      "id": "b93b39b5201c49e7a59f2eecb1d24337",
+      "type": "build.created",
+      "stage": "idea",
+      "status": "queued",
+      "message": "Build accepted and queued for hardware execution.",
+      "metadata": {
+        "prompt": "Build a desk monitor with an MPU6050 motion sensor"
+      },
+      "created_at": "2026-08-31T20:39:02.541915+00:00"
+    }
+  ]
+}

@@ -18,6 +18,14 @@ from .storage import BuildStore, get_store
 _executor = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("LOCAL_WORKER_THREADS", "2"))), thread_name_prefix="forge-build")
 
 
+class DispatchNotAccepted(RuntimeError):
+    """The dispatcher definitively rejected the request, so its lease may be released."""
+
+
+class DispatchOutcomeUnknown(RuntimeError):
+    """The request may have been accepted; retain the lease to prevent duplicate work."""
+
+
 def _created_event(build: Build) -> BuildEvent:
     return BuildEvent(id=uuid4().hex, type="build.created", stage=BuildStage.IDEA, status="queued", message="Build accepted and queued for hardware execution.", metadata={"prompt": build.prompt})
 
@@ -26,7 +34,7 @@ def dispatch_build(build_id: str, settings: Settings | None = None, store: Build
     settings = settings or get_settings()
     store = store or get_store()
     if settings.worker_dispatch_url and not settings.internal_worker_token:
-        raise RuntimeError("WORKER_DISPATCH_URL requires INTERNAL_WORKER_TOKEN from Secret Manager")
+        raise DispatchNotAccepted("WORKER_DISPATCH_URL requires INTERNAL_WORKER_TOKEN from Secret Manager")
     build = store.get(build_id)
     build.dispatch_requested_at = now_iso()
     build.queue_position = 0
@@ -43,15 +51,28 @@ def dispatch_build(build_id: str, settings: Settings | None = None, store: Build
                 ]
             ),
         )
-        client.run_job(request=request)
+        try:
+            client.run_job(request=request)
+        except Exception as exc:
+            raise DispatchOutcomeUnknown("Cloud Run Job dispatch outcome is unknown") from exc
         return
     if settings.worker_dispatch_url:
         headers = {"Authorization": f"Bearer {settings.internal_worker_token}"}
-        with httpx.Client(timeout=10) as client:
-            response = client.post(f"{settings.worker_dispatch_url.rstrip('/')}/internal/run/{build_id}", headers=headers)
+        try:
+            with httpx.Client(timeout=10) as client:
+                response = client.post(f"{settings.worker_dispatch_url.rstrip('/')}/internal/run/{build_id}", headers=headers)
+            if 400 <= response.status_code < 500:
+                raise DispatchNotAccepted(f"Worker rejected dispatch with HTTP {response.status_code}")
             response.raise_for_status()
+        except DispatchNotAccepted:
+            raise
+        except Exception as exc:
+            raise DispatchOutcomeUnknown("HTTP worker dispatch outcome is unknown") from exc
         return
-    _executor.submit(BuildOrchestrator(store, settings).run, build_id)
+    try:
+        _executor.submit(BuildOrchestrator(store, settings).run, build_id)
+    except Exception as exc:
+        raise DispatchNotAccepted("Local executor rejected dispatch") from exc
 
 
 def try_dispatch_build(
@@ -71,6 +92,21 @@ def try_dispatch_build(
         return claim.position
     try:
         dispatch_build(build_id, settings, store)
+    except DispatchOutcomeUnknown as exc:
+        # A timeout can happen after Cloud Run accepted the request. Keeping the lease makes
+        # retries safe: the accepted worker can start once, or expiration returns it to FIFO.
+        store.add_event(
+            build_id,
+            BuildEvent(
+                id=uuid4().hex,
+                type="build.dispatch.pending_confirmation",
+                stage=BuildStage.IDEA,
+                status="queued",
+                message="Hardware execution was requested and is awaiting confirmation.",
+                metadata={"reason": type(exc.__cause__ or exc).__name__},
+            ),
+        )
+        return 0
     except Exception as exc:
         store.release_build(build_id)
         build = store.get(build_id)
@@ -161,6 +197,11 @@ def update_build(build_id: str, change: str, *, dispatch: bool = True, store: Bu
 
 def status_payload(build_id: str, store: BuildStore | None = None) -> dict:
     store = store or get_store()
+    try:
+        store.reconcile_expired_leases()
+    except Exception:
+        # Reads remain available; the next poll/completion will retry reconciliation.
+        pass
     build = store.get(build_id)
     if build.status.value == "queued":
         try:

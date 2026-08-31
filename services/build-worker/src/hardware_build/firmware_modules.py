@@ -38,9 +38,17 @@ def _pin_number(hardware: HardwareIR, component: ComponentInstance, pin: str) ->
     candidates: set[str] = set()
     for connection in hardware.connections:
         endpoints = (connection.from_, connection.to)
-        if endpoints[0].ref == component.ref and endpoints[0].pin == pin and endpoints[1].ref == board_ref:
+        if (
+            endpoints[0].ref == component.ref
+            and endpoints[0].pin == pin
+            and endpoints[1].ref == board_ref
+        ):
             candidates.add(endpoints[1].pin)
-        if endpoints[1].ref == component.ref and endpoints[1].pin == pin and endpoints[0].ref == board_ref:
+        if (
+            endpoints[1].ref == component.ref
+            and endpoints[1].pin == pin
+            and endpoints[0].ref == board_ref
+        ):
             candidates.add(endpoints[0].pin)
 
     if not candidates:
@@ -74,8 +82,8 @@ def _ssd1306(hardware: HardwareIR, component: ComponentInstance) -> FirmwareFrag
     return FirmwareFragment(
         includes=("Adafruit_GFX.h", "Adafruit_SSD1306.h"),
         libraries=(
-            "adafruit/Adafruit GFX Library@^1.11.11",
-            "adafruit/Adafruit SSD1306@^2.5.13",
+            "adafruit/Adafruit GFX Library@1.11.11",
+            "adafruit/Adafruit SSD1306@2.5.13",
         ),
         declarations=f"""constexpr int {prefix}_SCREEN_WIDTH = 128;
 constexpr int {prefix}_SCREEN_HEIGHT = 64;
@@ -120,11 +128,12 @@ def _dht22(hardware: HardwareIR, component: ComponentInstance) -> FirmwareFragme
     alarm_loop = ""
     if alarm_led:
         alarm_pin = _pin_number(hardware, alarm_led, "A")
-        alarm_declaration = f"\nconstexpr int COUP_ALARM_LED_PIN = {alarm_pin};"
-        alarm_setup = "\n  pinMode(COUP_ALARM_LED_PIN, OUTPUT);\n  digitalWrite(COUP_ALARM_LED_PIN, LOW);\n  Serial.println(\"COUP_READY\");"
+        alarm_declaration = f"""\nconstexpr int COUP_ALARM_LED_PIN = {alarm_pin};
+constexpr float COUP_ALARM_THRESHOLD_C = 30.0f;"""
+        alarm_setup = '\n  pinMode(COUP_ALARM_LED_PIN, OUTPUT);\n  digitalWrite(COUP_ALARM_LED_PIN, LOW);\n  Serial.println("COUP_READY");'
         alarm_loop = """
   if (!isnan(telemetry.temperature_c)) {
-    if (telemetry.temperature_c > 30.0f) {
+    if (telemetry.temperature_c > COUP_ALARM_THRESHOLD_C) {
       digitalWrite(COUP_ALARM_LED_PIN, HIGH);
       Serial.println("TEMP_ALERT");
       Serial.println("COUP_TEST_PASS");
@@ -136,8 +145,8 @@ def _dht22(hardware: HardwareIR, component: ComponentInstance) -> FirmwareFragme
     return FirmwareFragment(
         includes=("DHT.h",),
         libraries=(
-            "adafruit/Adafruit Unified Sensor@^1.1.15",
-            "adafruit/DHT sensor library@^1.4.6",
+            "adafruit/Adafruit Unified Sensor@1.1.15",
+            "adafruit/DHT sensor library@1.4.6",
         ),
         declarations=f"""constexpr int {prefix}_DHT_PIN = {pin};
 DHT {name}({prefix}_DHT_PIN, DHT22);{alarm_declaration}""",
@@ -186,8 +195,8 @@ def _mpu6050(hardware: HardwareIR, component: ComponentInstance) -> FirmwareFrag
     return FirmwareFragment(
         includes=("Adafruit_Sensor.h", "Adafruit_MPU6050.h"),
         libraries=(
-            "adafruit/Adafruit Unified Sensor@^1.1.15",
-            "adafruit/Adafruit MPU6050@^2.2.6",
+            "adafruit/Adafruit Unified Sensor@1.1.15",
+            "adafruit/Adafruit MPU6050@2.2.6",
         ),
         declarations=f"Adafruit_MPU6050 {name};",
         setup=f"""if (!{name}.begin(0x68, &Wire)) {{
@@ -232,7 +241,9 @@ def compose_fragments(hardware: HardwareIR) -> list[FirmwareFragment]:
         hardware.components,
         key=lambda component: (MODULES[component.component_id].order, component.ref),
     )
-    fragments = [MODULES[component.component_id].render(hardware, component) for component in components]
+    fragments = [
+        MODULES[component.component_id].render(hardware, component) for component in components
+    ]
 
     i2c_buses = {fragment.i2c_pins for fragment in fragments if fragment.i2c_pins is not None}
     if len(i2c_buses) > 1:

@@ -11,7 +11,7 @@ steps:
       - -ceu
       - |
         docker pull '${_CACHE_IMAGE}' || true
-        docker build --cache-from '${_CACHE_IMAGE}' --build-arg 'TOOLCHAIN_IMAGE=${_TOOLCHAIN_IMAGE}' -f services/build-worker/Dockerfile --target '${_TARGET}' -t '${_IMAGE}' -t '${_CACHE_IMAGE}' .
+        docker build --cache-from '${_CACHE_IMAGE}' --build-arg BUILDKIT_INLINE_CACHE=1 --build-arg 'TOOLCHAIN_IMAGE=${_TOOLCHAIN_IMAGE}' -f services/build-worker/Dockerfile --target '${_TARGET}' -t '${_IMAGE}' -t '${_CACHE_IMAGE}' .
   - id: push
     name: gcr.io/cloud-builders/docker
     waitFor: [build]

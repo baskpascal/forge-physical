@@ -43,9 +43,7 @@ def _hardware(component_ids: list[str]) -> HardwareIR:
         for component_pin, board_pin in pin_maps[component_id].items()
     ]
     return HardwareIR(
-        board=ComponentInstance(
-            ref="board", component_id="esp32-s3-devkit", label="ESP32-S3"
-        ),
+        board=ComponentInstance(ref="board", component_id="esp32-s3-devkit", label="ESP32-S3"),
         components=components,
         connections=connections,
         power=[],
@@ -53,10 +51,16 @@ def _hardware(component_ids: list[str]) -> HardwareIR:
 
 
 def test_firmware_generation_and_known_repair(tmp_path: Path):
-    hardware = deterministic_hardware_ir(deterministic_product_spec("Build an OLED desk temperature monitor with a knob"))
+    hardware = deterministic_hardware_ir(
+        deterministic_product_spec("Build an OLED desk temperature monitor with a knob")
+    )
     files = generate_firmware(hardware, tmp_path)
     assert "CHECK:BOOT:PASS" in files["source"].read_text(encoding="utf-8")
-    source = files["source"].read_text(encoding="utf-8").replace("display.begin", "display.begin_broken", 1)
+    source = (
+        files["source"]
+        .read_text(encoding="utf-8")
+        .replace("display.begin", "display.begin_broken", 1)
+    )
     files["source"].write_text(source, encoding="utf-8")
     assert deterministic_repair(files["source"], "no member named begin_broken")
     assert "begin_broken" not in files["source"].read_text(encoding="utf-8")
@@ -73,6 +77,21 @@ def test_temperature_alarm_firmware_emits_observable_wokwi_markers(tmp_path: Pat
     assert "TEMP_NORMAL" in source
     assert "TEMP_ALERT" in source
     assert "COUP_TEST_PASS" in source
+
+
+def test_temperature_update_changes_the_compiled_control_threshold(tmp_path: Path):
+    hardware = deterministic_hardware_ir(
+        deterministic_product_spec("Create an ESP32 temperature alarm above 30C")
+    )
+
+    source = generate_firmware(
+        hardware,
+        tmp_path,
+        "Create an ESP32 temperature alarm above 30C\n\nRequested update: threshold 35C",
+    )["source"].read_text(encoding="utf-8")
+
+    assert "COUP_ALARM_THRESHOLD_C = 35.0f" in source
+    assert "temperature_c > COUP_ALARM_THRESHOLD_C" in source
 
 
 def test_compile_failure_injection_applies_to_the_temperature_alarm(tmp_path: Path, monkeypatch):
@@ -143,9 +162,9 @@ def test_base_monitor_flows_sensor_and_encoder_telemetry_to_oled(tmp_path: Path)
     assert 'display.print("Knob: ");' in source
     assert "display.println(telemetry.encoder_delta);" in source
     loop_start = source.index("void loop()")
-    assert source.index("telemetry.temperature_c = sensor.readTemperature();", loop_start) < source.index(
-        "render_display(telemetry);", loop_start
-    )
+    assert source.index(
+        "telemetry.temperature_c = sensor.readTemperature();", loop_start
+    ) < source.index("render_display(telemetry);", loop_start)
 
 
 def test_oled_without_sensor_or_encoder_renders_safe_empty_telemetry(tmp_path: Path):

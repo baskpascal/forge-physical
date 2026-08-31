@@ -14,6 +14,7 @@ const ranks: Record<BuildStage, number> = {
 export type StageState = "passed" | "active" | "pending" | "failed" | "unavailable" | "not_run";
 
 export function deriveStageState(build: Build, stage: BuildStage): StageState {
+  if (build.status === "queued") return "pending";
   const current = ranks[build.stage];
   const target = ranks[stage];
   const toolStatus = stage === "firmware"

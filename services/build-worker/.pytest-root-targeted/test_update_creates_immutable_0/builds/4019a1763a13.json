@@ -1,0 +1,43 @@
+{
+  "build": {
+    "id": "4019a1763a13",
+    "prompt": "Build a supported low voltage desk monitor\n\nRequested update: Add motion sensing",
+    "status": "queued",
+    "stage": "idea",
+    "progress": 0,
+    "version": 2,
+    "parent_build_id": "7f3a3b68d7cc",
+    "queue_position": null,
+    "dispatch_requested_at": null,
+    "execution_started_at": null,
+    "product_spec": null,
+    "hardware": null,
+    "electrical_validation": null,
+    "semantic_alignment": null,
+    "firmware": null,
+    "simulation": null,
+    "enclosure": null,
+    "verification": null,
+    "artifact_paths": {},
+    "fingerprints": {},
+    "reuse_evidence": [],
+    "timings_ms": {},
+    "agent_mode": "pending",
+    "error": null,
+    "created_at": "2026-08-31T20:37:28.092398+00:00",
+    "updated_at": "2026-08-31T20:37:28.092398+00:00"
+  },
+  "events": [
+    {
+      "id": "ab53fd8ecf884993b0cf811361040440",
+      "type": "build.created",
+      "stage": "idea",
+      "status": "queued",
+      "message": "Build accepted and queued for hardware execution.",
+      "metadata": {
+        "prompt": "Build a supported low voltage desk monitor\n\nRequested update: Add motion sensing"
+      },
+      "created_at": "2026-08-31T20:37:28.092398+00:00"
+    }
+  ]
+}

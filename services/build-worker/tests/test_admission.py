@@ -5,7 +5,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from hardware_build import api
-from hardware_build.service import create_build
+from hardware_build.service import (
+    DispatchNotAccepted,
+    DispatchOutcomeUnknown,
+    create_build,
+    try_dispatch_build,
+)
 from hardware_build.settings import Settings
 from hardware_build.storage import (
     BuildAdmissionRejected,
@@ -115,7 +120,7 @@ def test_expired_lease_and_budget_are_reclaimed(tmp_path: Path, monkeypatch):
     assert "second" in store._active_leases
 
 
-def test_api_returns_retry_after_for_capacity_rejection(monkeypatch):
+def test_api_never_reports_capacity_as_rate_limit(monkeypatch):
     def rejected(*_args, **_kwargs):
         raise BuildAdmissionRejected("global_concurrency", 17)
 
@@ -126,9 +131,120 @@ def test_api_returns_retry_after_for_capacity_rejection(monkeypatch):
         json={"prompt": "Build a supported temperature alarm"},
     )
 
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "5"
+    assert "Retry-After" in response.headers["access-control-expose-headers"]
+
+
+def test_api_returns_429_only_for_abuse_budget(monkeypatch):
+    def rejected(*_args, **_kwargs):
+        raise BuildAdmissionRejected("client_budget", 17)
+
+    monkeypatch.setattr(api, "create_build", rejected)
+    response = TestClient(api.app).post(
+        "/api/builds",
+        json={"prompt": "Build a supported temperature alarm"},
+    )
+
     assert response.status_code == 429
     assert response.headers["retry-after"] == "17"
-    assert "Retry-After" in response.headers["access-control-expose-headers"]
+    assert "request limit" in response.json()["detail"].lower()
+
+
+def test_start_requires_live_lease_and_is_idempotent(tmp_path: Path):
+    store = LocalJsonBuildStore(tmp_path / "data")
+    settings = _settings(tmp_path)
+    response = create_build(
+        "Build a supported low voltage alarm",
+        dispatch=False,
+        store=store,
+        settings=settings,
+    )
+
+    assert store.start_execution(response.build_id) is None
+    assert store.claim_build(response.build_id, settings).claimed
+    started = store.start_execution(response.build_id)
+    assert started is not None and started.status.value == "planning"
+    assert store.start_execution(response.build_id) is None
+
+
+def test_expired_running_lease_is_requeued_and_reclaimable(tmp_path: Path, monkeypatch):
+    store = LocalJsonBuildStore(tmp_path / "data")
+    settings = _settings(tmp_path, build_max_concurrent=1, build_lease_seconds=30)
+    clock = {"now": 100.0}
+    monkeypatch.setattr("hardware_build.storage.time.time", lambda: clock["now"])
+    response = create_build(
+        "Build a supported low voltage alarm",
+        dispatch=False,
+        store=store,
+        settings=settings,
+    )
+    assert store.claim_build(response.build_id, settings).claimed
+    assert store.start_execution(response.build_id) is not None
+
+    clock["now"] = 131.0
+    assert store.reconcile_expired_leases() == [response.build_id]
+    recovered = store.get(response.build_id)
+    assert recovered.status.value == "queued"
+    assert recovered.execution_started_at is None
+    assert store.claim_build(response.build_id, settings).claimed
+
+
+def test_fifo_position_counts_waiters_ahead(tmp_path: Path):
+    store = LocalJsonBuildStore(tmp_path / "data")
+    settings = _settings(tmp_path, build_max_concurrent=1, build_request_budget=20)
+    builds = [
+        create_build(
+            f"Build supported low voltage alarm {index}",
+            dispatch=False,
+            store=store,
+            settings=settings,
+            client_key=str(index),
+        )
+        for index in range(3)
+    ]
+    assert store.claim_build(builds[0].build_id, settings).claimed
+    claim = store.claim_build(builds[2].build_id, settings)
+    assert not claim.claimed
+    assert claim.position == 2
+
+
+def test_dispatch_timeout_after_accept_retains_lease(tmp_path: Path, monkeypatch):
+    store = LocalJsonBuildStore(tmp_path / "data")
+    settings = _settings(tmp_path)
+    response = create_build(
+        "Build a supported low voltage alarm",
+        dispatch=False,
+        store=store,
+        settings=settings,
+    )
+    monkeypatch.setattr(
+        "hardware_build.service.dispatch_build",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(DispatchOutcomeUnknown("timeout")),
+    )
+
+    assert try_dispatch_build(response.build_id, settings, store) == 0
+    assert store.has_active_lease(response.build_id)
+    event_types = [event.type for event in store.events(response.build_id)]
+    assert "build.dispatch.pending_confirmation" in event_types
+
+
+def test_definitive_dispatch_failure_releases_lease(tmp_path: Path, monkeypatch):
+    store = LocalJsonBuildStore(tmp_path / "data")
+    settings = _settings(tmp_path)
+    response = create_build(
+        "Build a supported low voltage alarm",
+        dispatch=False,
+        store=store,
+        settings=settings,
+    )
+    monkeypatch.setattr(
+        "hardware_build.service.dispatch_build",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(DispatchNotAccepted("rejected")),
+    )
+
+    assert try_dispatch_build(response.build_id, settings, store) == 1
+    assert not store.has_active_lease(response.build_id)
 
 
 def test_api_fails_closed_when_admission_storage_is_unavailable(monkeypatch):

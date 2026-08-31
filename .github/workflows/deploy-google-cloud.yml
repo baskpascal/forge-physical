@@ -41,6 +41,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
+      - name: Start deployment timing
+        shell: bash
+        run: echo "COUP_DEPLOY_STARTED_AT=$(date +%s)" >> "${GITHUB_ENV}"
       - uses: actions/checkout@v7
       - id: auth
         name: Authenticate with short-lived Google credentials
@@ -55,6 +58,10 @@ jobs:
         run: |
           gcloud auth list --filter=status:ACTIVE --format="value(account)"
           gcloud config get-value project
+          setup_seconds="$(($(date +%s)-COUP_DEPLOY_STARTED_AT))"
+          echo "github_setup_auth_seconds=${setup_seconds}"
+          printf '### COUP GitHub deployment phases\n\n| Phase | Duration |\n|---|---:|\n' >> "${GITHUB_STEP_SUMMARY}"
+          printf '| GitHub setup/auth | %s s |\n' "${setup_seconds}" >> "${GITHUB_STEP_SUMMARY}"
       - name: Submit selective parallel build and deployment
         shell: bash
         env:
@@ -75,15 +82,42 @@ jobs:
             --gcs-source-staging-dir="gs://${GCP_PROJECT_ID}-forge-build-source/source" \
             --config=cloudbuild.yaml \
             --substitutions="_REGION=${GCP_REGION},_IMAGE_TAG=${GITHUB_SHA},_DEPLOY_API=${DEPLOY_API},_DEPLOY_WORKER=${DEPLOY_WORKER},_DEPLOY_WEB=${DEPLOY_WEB},_BUILD_TOOLCHAIN=${BUILD_TOOLCHAIN},_CONFIG_CHANGED=${CONFIG_CHANGED}")"
-          echo "source_upload_and_submit_seconds=$(($(date +%s)-submitted_at))"
+          submit_seconds="$(($(date +%s)-submitted_at))"
+          echo "source_upload_and_submit_seconds=${submit_seconds}"
+          printf '| Source upload + submit | %s s |\n' "${submit_seconds}" >> "${GITHUB_STEP_SUMMARY}"
           echo "Cloud Build: ${build_id}"
-          for attempt in $(seq 1 180); do
+          completed=false
+          for attempt in $(seq 1 360); do
             status="$(gcloud builds describe "${build_id}" --project="${GCP_PROJECT_ID}" --format='value(status)' 2>/dev/null || true)"
             case "${status}" in
-              SUCCESS) exit 0 ;;
+              SUCCESS) completed=true; break ;;
               FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED) echo "Cloud Build ${build_id} ended with ${status}" >&2; exit 1 ;;
             esac
             sleep 5
           done
-          echo "Timed out waiting for Cloud Build ${build_id}" >&2
-          exit 1
+          if [[ "${completed}" != true ]]; then
+            echo "Timed out waiting for Cloud Build ${build_id}" >&2
+            exit 1
+          fi
+          gcloud builds describe "${build_id}" --project="${GCP_PROJECT_ID}" --format=json > "${RUNNER_TEMP}/coup-cloud-build.json"
+          python - "${RUNNER_TEMP}/coup-cloud-build.json" "${GITHUB_STEP_SUMMARY}" <<'PY'
+          import datetime as dt
+          import json
+          import pathlib
+          import sys
+
+          build = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          rows = []
+          for step in build.get("steps", []):
+              timing = step.get("timing", {})
+              if not timing.get("startTime") or not timing.get("endTime"):
+                  continue
+              start = dt.datetime.fromisoformat(timing["startTime"].replace("Z", "+00:00"))
+              end = dt.datetime.fromisoformat(timing["endTime"].replace("Z", "+00:00"))
+              rows.append((step.get("id", step["name"]), round((end - start).total_seconds(), 1)))
+          with pathlib.Path(sys.argv[2]).open("a", encoding="utf-8") as summary:
+              summary.write("\n### COUP deployment phases\n\n| Phase | Duration |\n|---|---:|\n")
+              for phase, seconds in rows:
+                  summary.write(f"| {phase} | {seconds:.1f} s |\n")
+          print(json.dumps(dict(rows), sort_keys=True))
+          PY

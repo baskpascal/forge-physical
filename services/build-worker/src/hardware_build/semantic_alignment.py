@@ -39,6 +39,7 @@ def verify_semantic_alignment(
         task_type="SEMANTIC_SIMILARITY",
         output_dimensionality=128,
     )
+
     def verify_model(model: str) -> dict[str, object]:
         started = time.perf_counter()
         client = genai.Client(
@@ -72,6 +73,12 @@ def verify_semantic_alignment(
             }
 
     models = settings.embedding_model_ids
+    if not models:
+        return ToolResult(
+            status="unavailable",
+            summary="Semantic alignment has no configured embedding models.",
+            evidence={"models": [], "vectors_persisted": False},
+        )
     with ThreadPoolExecutor(
         max_workers=max(1, min(settings.embedding_max_concurrency, len(models))),
         thread_name_prefix="semantic-alignment",
@@ -86,6 +93,6 @@ def verify_semantic_alignment(
 
     return ToolResult(
         status="passed",
-        summary="Three additional Google AI models verified prompt-to-spec semantic alignment.",
+        summary=f"{len(results)} additional Google AI models verified prompt-to-spec semantic alignment.",
         evidence={"models": results, "vectors_persisted": False},
     )

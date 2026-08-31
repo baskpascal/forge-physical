@@ -32,7 +32,7 @@ steps:
         image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/coup-worker-toolchain:${_TOOLCHAIN_VERSION}'
         cache='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/coup-worker-toolchain:cache'
         docker pull "$$cache" || true
-        docker build --cache-from "$$cache" -f services/build-worker/Dockerfile.toolchain -t "$$image" -t "$$cache" .
+        docker build --cache-from "$$cache" --build-arg BUILDKIT_INLINE_CACHE=1 -f services/build-worker/Dockerfile.toolchain -t "$$image" -t "$$cache" .
 
   - id: toolchain-push
     name: gcr.io/cloud-builders/docker
@@ -58,7 +58,7 @@ steps:
         image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}'
         cache='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:cache'
         docker pull "$$cache" || true
-        docker build --cache-from "$$cache" -f services/build-worker/Dockerfile --target api-runtime -t "$$image" -t "$$cache" .
+        docker build --cache-from "$$cache" --build-arg BUILDKIT_INLINE_CACHE=1 -f services/build-worker/Dockerfile --target api-runtime -t "$$image" -t "$$cache" .
 
   - id: worker-build
     name: gcr.io/cloud-builders/docker
@@ -69,15 +69,11 @@ steps:
       - |
         [[ '${_DEPLOY_WORKER}' == 'true' ]] || exit 0
         image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}'
-        new_digest="$$(gcloud artifacts docker images describe "$$image" --format='value(image_summary.digest)')"
-        current_image="$$(gcloud run jobs describe '${_WORKER_JOB}' --region='${_REGION}' --format='value(spec.template.template.containers[0].image)' 2>/dev/null || true)"
-        current_digest="$$(gcloud artifacts docker images describe "$$current_image" --format='value(image_summary.digest)' 2>/dev/null || true)"
-        if [[ '${_CONFIG_CHANGED}' != 'true' && -n "$$new_digest" && "$$new_digest" == "$$current_digest" ]]; then echo 'worker image/config unchanged; skipping revision'; exit 0; fi
         cache='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:cache'
         toolchain='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/coup-worker-toolchain:${_TOOLCHAIN_VERSION}'
         docker pull "$$cache" || true
         docker pull "$$toolchain"
-        docker build --cache-from "$$cache" --build-arg "TOOLCHAIN_IMAGE=$$toolchain" -f services/build-worker/Dockerfile --target worker-runtime -t "$$image" -t "$$cache" .
+        docker build --cache-from "$$cache" --build-arg BUILDKIT_INLINE_CACHE=1 --build-arg "TOOLCHAIN_IMAGE=$$toolchain" -f services/build-worker/Dockerfile --target worker-runtime -t "$$image" -t "$$cache" .
 
   - id: web-build
     name: gcr.io/cloud-builders/docker
@@ -90,7 +86,7 @@ steps:
         image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}'
         cache='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:cache'
         docker pull "$$cache" || true
-        docker build --cache-from "$$cache" --build-arg NEXT_PUBLIC_BUILD_API_URL=${_PUBLIC_API_URL} -f apps/web/Dockerfile -t "$$image" -t "$$cache" .
+        docker build --cache-from "$$cache" --build-arg BUILDKIT_INLINE_CACHE=1 --build-arg NEXT_PUBLIC_BUILD_API_URL=${_PUBLIC_API_URL} -f apps/web/Dockerfile -t "$$image" -t "$$cache" .
 
   - id: api-push
     name: gcr.io/cloud-builders/docker
@@ -119,6 +115,10 @@ steps:
       - |
         [[ '${_DEPLOY_WORKER}' == 'true' ]] || exit 0
         image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}'
+        new_digest="$$(gcloud artifacts docker images describe "$$image" --format='value(image_summary.digest)')"
+        current_image="$$(gcloud run jobs describe '${_WORKER_JOB}' --region='${_REGION}' --format='value(spec.template.spec.template.spec.containers[0].image)' 2>/dev/null || true)"
+        current_digest="$$(gcloud artifacts docker images describe "$$current_image" --format='value(image_summary.digest)' 2>/dev/null || true)"
+        if [[ '${_CONFIG_CHANGED}' != 'true' && -n "$$new_digest" && "$$new_digest" == "$$current_digest" ]]; then echo 'worker image/config unchanged; skipping revision'; exit 0; fi
         gcloud run jobs deploy '${_WORKER_JOB}' --image="$$image" --region='${_REGION}' --service-account="forge-worker@$PROJECT_ID.iam.gserviceaccount.com" --command=python --args=-m,hardware_build.run_job --set-env-vars='BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL},EMBEDDING_MODELS=gemini-embedding-001;text-embedding-005;text-multilingual-embedding-002,BUILD_LEASE_SECONDS=${_BUILD_LEASE_SECONDS},BUILD_HEARTBEAT_SECONDS=${_BUILD_HEARTBEAT_SECONDS}' --set-secrets=WOKWI_CLI_TOKEN=wokwi-cli-token:latest --task-timeout=30m --memory=4Gi
 
   - id: api-deploy

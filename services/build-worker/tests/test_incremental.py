@@ -1,7 +1,12 @@
 from pathlib import Path
 
 from hardware_build.artifacts import ArtifactWorkspace
-from hardware_build.incremental import build_fingerprints, reusable_phases
+from hardware_build.incremental import (
+    build_fingerprints,
+    enclosure_dimensions_mm,
+    reusable_phases,
+    temperature_threshold_c,
+)
 from hardware_build.models import Build
 from hardware_build.planning import deterministic_hardware_ir, deterministic_product_spec
 from hardware_build.settings import Settings
@@ -12,8 +17,12 @@ def _hardware(prompt: str):
 
 
 def test_threshold_change_invalidates_firmware_but_not_hardware_or_enclosure():
-    before = build_fingerprints(_hardware("temperature alarm above 30C"), "temperature alarm above 30C")
-    after = build_fingerprints(_hardware("temperature alarm above 35C"), "temperature alarm above 35C")
+    before = build_fingerprints(
+        _hardware("temperature alarm above 30C"), "temperature alarm above 30C"
+    )
+    after = build_fingerprints(
+        _hardware("temperature alarm above 35C"), "temperature alarm above 35C"
+    )
 
     phases = reusable_phases(after, before)
     assert {"hardware", "enclosure"} <= phases
@@ -25,6 +34,29 @@ def test_name_only_change_is_a_full_safe_cache_hit():
     before = build_fingerprints(hardware, "temperature alarm above 30C named Alpha")
     after = build_fingerprints(hardware, "temperature alarm above 30C named Beta")
     assert reusable_phases(after, before) == {"hardware", "firmware", "simulation", "enclosure"}
+
+
+def test_enclosure_change_invalidates_only_the_enclosure():
+    hardware = _hardware("temperature alarm above 30C")
+    before = build_fingerprints(hardware, "temperature alarm above 30C")
+    after = build_fingerprints(
+        hardware,
+        "temperature alarm above 30C\n\nRequested update: enclosure 100x80x35 mm",
+    )
+
+    phases = reusable_phases(after, before)
+    assert {"hardware", "firmware", "simulation"} <= phases
+    assert "enclosure" not in phases
+    assert enclosure_dimensions_mm("Requested update: enclosure 100x80x35 mm") == (
+        100.0,
+        80.0,
+        35.0,
+    )
+
+
+def test_latest_threshold_controls_the_fingerprint_and_generated_behavior():
+    prompt = "temperature alarm above 30C\n\nRequested update: threshold 35C"
+    assert temperature_threshold_c(prompt) == 35.0
 
 
 def test_artifact_cache_hit_copies_content_and_records_hash(tmp_path: Path):

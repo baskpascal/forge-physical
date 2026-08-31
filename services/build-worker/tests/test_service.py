@@ -27,6 +27,7 @@ def test_build_state_machine_completes_with_real_tool_contracts(tmp_path: Path, 
             evidence={"checks": ["scenario validated"]},
         ),
     )
+    assert store.claim_build(response.build_id, settings).claimed
     BuildOrchestrator(store, settings).run(response.build_id)
     build = store.get(response.build_id)
     event_types = [event.type for event in store.events(response.build_id)]
@@ -45,6 +46,30 @@ def test_start_returns_before_worker_when_dispatch_disabled(tmp_path: Path):
     response = create_build("Build a supported low voltage desk monitor", dispatch=False, store=store, settings=settings)
     assert response.status == "queued"
     assert store.get(response.build_id).progress == 0
+
+
+def test_worker_failure_releases_execution_lease(tmp_path: Path, monkeypatch):
+    store = LocalJsonBuildStore(tmp_path / "data")
+    settings = Settings(
+        build_data_dir=tmp_path / "data",
+        build_artifact_dir=tmp_path / "artifacts",
+    )
+    response = create_build(
+        "Build a supported low voltage desk monitor",
+        dispatch=False,
+        store=store,
+        settings=settings,
+    )
+
+    async def failed_plan(*_args, **_kwargs):
+        raise RuntimeError("planner unavailable")
+
+    monkeypatch.setattr("hardware_build.orchestrator.plan_product", failed_plan)
+    assert store.claim_build(response.build_id, settings).claimed
+    BuildOrchestrator(store, settings).run(response.build_id)
+
+    assert store.get(response.build_id).status == "failed"
+    assert not store.has_active_lease(response.build_id)
 
 
 def test_update_creates_immutable_child_version(tmp_path: Path):
@@ -221,6 +246,7 @@ def test_motion_build_verification_records_additional_scenario_checks(
         )
 
     monkeypatch.setattr("hardware_build.orchestrator.compile_firmware", compiled)
+    assert store.claim_build(response.build_id, settings).claimed
     BuildOrchestrator(store, settings).run(response.build_id)
 
     build = store.get(response.build_id)
@@ -264,6 +290,7 @@ def test_failed_simulation_never_marks_build_completed(tmp_path: Path, monkeypat
             evidence={"exit_code": 1},
         ),
     )
+    assert store.claim_build(response.build_id, settings).claimed
     BuildOrchestrator(store, settings).run(response.build_id)
 
     build = store.get(response.build_id)
@@ -319,6 +346,7 @@ def test_engineering_agent_receives_real_compiler_evidence(tmp_path: Path, monke
     monkeypatch.setattr("hardware_build.orchestrator.compile_firmware", compile_with_one_failure)
     monkeypatch.setattr("hardware_build.orchestrator.propose_repair", repair_from_evidence)
 
+    assert store.claim_build(response.build_id, settings).claimed
     BuildOrchestrator(store, settings).run(response.build_id)
 
     assert "void setup()" in received["source"]

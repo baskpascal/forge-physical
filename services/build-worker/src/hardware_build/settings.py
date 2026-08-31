@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     build_request_window_seconds: int = 3600
     build_lease_seconds: int = 300
     build_heartbeat_seconds: int = 60
+    build_reconcile_seconds: int = 30
     embedding_max_concurrency: int = 3
     platformio_cmd: str = "platformio"
     max_repair_attempts: int = 3

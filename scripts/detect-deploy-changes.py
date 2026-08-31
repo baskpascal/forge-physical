@@ -6,26 +6,81 @@ import os
 import subprocess
 from pathlib import Path
 
+DOC_ONLY_ROOTS = ("docs/", ".github/ISSUE_TEMPLATE/")
+DOC_ONLY_FILES = {"README.md", "HACKATHON.md", "LICENSE"}
+NO_RUNTIME_ROOTS = ("services/build-worker/tests/",)
+NO_RUNTIME_FILES = {
+    ".dockerignore",
+    ".gitignore",
+    "AGENTS.md",
+}
+
+# The API and worker are installed from the same Python package. Only modules
+# outside the API import graph may route worker-only. Hardware generation modules
+# remain shared until the local API fallback is split from the production API.
+WORKER_ONLY_MODULES = {
+    "cli.py",
+    "integration_check.py",
+    "run_job.py",
+    "smoke.py",
+}
+API_ONLY_MODULES = {"api.py", "mcp_server.py"}
+
+
+def _normalized(raw_path: str) -> str:
+    return raw_path.replace("\\", "/").removeprefix("./")
+
 
 def classify(paths: list[str]) -> dict[str, bool]:
     flags = {"api": False, "worker": False, "web": False, "toolchain": False, "config": False}
-    ignored_roots = ("docs/", ".github/ISSUE_TEMPLATE/")
-    ignored_files = {"README.md", "HACKATHON.md", "LICENSE"}
     for raw_path in paths:
-        path = raw_path.replace("\\", "/").lstrip("./")
-        if not path or path in ignored_files or path.startswith(ignored_roots):
+        path = _normalized(raw_path)
+        if (
+            not path
+            or path in DOC_ONLY_FILES
+            or path in NO_RUNTIME_FILES
+            or path.startswith(DOC_ONLY_ROOTS + NO_RUNTIME_ROOTS)
+        ):
             continue
-        if path.startswith("apps/web/") or path in {"package.json", "package-lock.json"}:
+        if path.startswith("apps/web/"):
             flags["web"] = True
-        elif path.startswith("services/build-worker/tooling/") or path.endswith("Dockerfile.toolchain"):
+        elif path in {"package.json", "package-lock.json"}:
+            # The root npm lockfile only feeds the web image today.
+            flags["web"] = True
+        elif path.startswith("services/build-worker/tooling/") or path == (
+            "services/build-worker/Dockerfile.toolchain"
+        ):
             flags["worker"] = True
             flags["toolchain"] = True
-        elif path.startswith("services/build-worker/"):
-            # API and worker currently share one audited Python package. Rebuild both for package
-            # changes; tooling is isolated above so ordinary app changes never rebuild toolchains.
+        elif path == "services/build-worker/Dockerfile":
             flags["api"] = True
             flags["worker"] = True
-        elif path.startswith(("infra/", "cloudbuild")) or path == ".github/workflows/deploy-google-cloud.yml":
+        elif path.startswith("services/build-worker/src/hardware_build/"):
+            module = path.rsplit("/", 1)[-1]
+            if module in WORKER_ONLY_MODULES:
+                flags["worker"] = True
+            elif module in API_ONLY_MODULES:
+                flags["api"] = True
+            else:
+                # Unknown and transitively shared modules rebuild both runtimes.
+                flags["api"] = True
+                flags["worker"] = True
+        elif path.startswith("services/build-worker/"):
+            # pyproject and unknown production package inputs affect both images.
+            flags["api"] = True
+            flags["worker"] = True
+        elif path == "cloudbuild.web.yaml":
+            flags["web"] = True
+            flags["config"] = True
+        elif path == "cloudbuild.image.yaml":
+            flags["api"] = True
+            flags["worker"] = True
+            flags["config"] = True
+        elif path.startswith("infra/") or path in {
+            "cloudbuild.yaml",
+            ".github/workflows/deploy-google-cloud.yml",
+            "scripts/detect-deploy-changes.py",
+        }:
             flags.update(api=True, worker=True, web=True, config=True)
         elif path.startswith(("scripts/", ".github/")):
             continue

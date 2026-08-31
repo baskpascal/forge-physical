@@ -21,5 +21,13 @@ describe("Build Room presentation", () => {
     queued.progress = 0;
     queued.queue_position = 2;
     expect(terminalSummary(queued)).toBe("Waiting for hardware execution slot · Position 2");
+    expect(macroStageState(queued, ["idea", "components"])).toBe("pending");
+  });
+  it("distinguishes an acquired slot from waiting capacity", () => {
+    const queued = build("queued");
+    queued.stage = "idea";
+    queued.progress = 0;
+    queued.queue_position = 0;
+    expect(terminalSummary(queued)).toBe("Queued · starting hardware worker");
   });
 });

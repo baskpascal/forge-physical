@@ -10,7 +10,7 @@ from pathlib import Path
 
 from google.cloud import firestore
 
-from .models import Build, BuildEvent, now_iso
+from .models import Build, BuildEvent, BuildStatus, now_iso
 from .settings import Settings, get_settings
 
 
@@ -61,6 +61,9 @@ class BuildStore(ABC):
     def start_execution(self, build_id: str) -> Build | None: ...
 
     @abstractmethod
+    def has_active_lease(self, build_id: str) -> bool: ...
+
+    @abstractmethod
     def renew_build(self, build_id: str, settings: Settings) -> bool: ...
 
     @abstractmethod
@@ -68,6 +71,9 @@ class BuildStore(ABC):
 
     @abstractmethod
     def release_build(self, build_id: str) -> None: ...
+
+    @abstractmethod
+    def reconcile_expired_leases(self) -> list[str]: ...
 
 
 class LocalJsonBuildStore(BuildStore):
@@ -166,8 +172,45 @@ class LocalJsonBuildStore(BuildStore):
             key: expiry for key, expiry in self._active_leases.items() if expiry > now
         }
 
+    def reconcile_expired_leases(self) -> list[str]:
+        """Return orphaned in-flight builds to FIFO after their worker lease expires."""
+        with self._lock:
+            now = time.time()
+            expired = [build_id for build_id, expiry in self._active_leases.items() if expiry <= now]
+            self._prune_leases(now)
+            recovered: list[str] = []
+            for build_id in expired:
+                try:
+                    build = self.get(build_id)
+                except BuildNotFoundError:
+                    continue
+                was_in_flight = build.status.value in {
+                    "planning", "building", "testing", "repairing"
+                }
+                if was_in_flight:
+                    build.status = BuildStatus.QUEUED
+                    build.queue_position = None
+                    build.execution_started_at = None
+                if was_in_flight or build.status.value == "queued":
+                    build.dispatch_requested_at = None
+                    self.save(build)
+                    self.add_event(
+                        build_id,
+                        BuildEvent(
+                            id=f"lease-expired-{int(now * 1000)}",
+                            type="build.lease.expired",
+                            stage=build.stage,
+                            status="queued",
+                            message="Worker lease expired; build returned to the execution queue.",
+                            metadata={"recovery": "automatic"},
+                        ),
+                    )
+                    recovered.append(build_id)
+            return recovered
+
     def queued_build_ids(self) -> list[str]:
         with self._lock:
+            self.reconcile_expired_leases()
             queued: list[Build] = []
             for path in self.root.glob("*.json"):
                 build = Build.model_validate(json.loads(path.read_text(encoding="utf-8"))["build"])
@@ -192,13 +235,22 @@ class LocalJsonBuildStore(BuildStore):
 
     def start_execution(self, build_id: str) -> Build | None:
         with self._lock:
+            self._prune_leases(time.time())
+            if build_id not in self._active_leases:
+                return None
             build = self.get(build_id)
             if build.status.value != "queued":
                 return None
+            build.status = BuildStatus.PLANNING
             build.execution_started_at = now_iso()
             build.queue_position = 0
             self.save(build)
             return build
+
+    def has_active_lease(self, build_id: str) -> bool:
+        with self._lock:
+            self._prune_leases(time.time())
+            return build_id in self._active_leases
 
     def renew_build(self, build_id: str, settings: Settings) -> bool:
         with self._lock:
@@ -323,10 +375,14 @@ class FirestoreBuildStore(BuildStore):
             raise BuildAdmissionUnavailable("Build admission storage is unavailable") from exc
 
     def queued_build_ids(self) -> list[str]:
+        self.reconcile_expired_leases()
         query = self.client.collection("builds").where("status", "==", "queued").order_by("created_at")
         return [snapshot.id for snapshot in query.stream()]
 
     def claim_build(self, build_id: str, settings: Settings) -> QueueClaim:
+        queued = self.queued_build_ids()
+        if build_id not in queued:
+            return QueueClaim(False, None)
         transaction = self.client.transaction()
         reference = self._admission_ref()
         build_reference = self._ref(build_id)
@@ -347,7 +403,11 @@ class FirestoreBuildStore(BuildStore):
             if build_id in leases:
                 return QueueClaim(False, None)
             if settings.build_max_concurrent > 0 and len(leases) >= settings.build_max_concurrent:
-                return QueueClaim(False, 1)
+                waiting = [queued_id for queued_id in queued if queued_id not in leases]
+                return QueueClaim(False, waiting.index(build_id) + 1)
+            waiting = [queued_id for queued_id in queued if queued_id not in leases]
+            if waiting and waiting[0] != build_id:
+                return QueueClaim(False, waiting.index(build_id) + 1)
             leases[build_id] = now + settings.build_lease_seconds
             transaction.set(reference, {**payload, "leases": leases, "updated_at": now_iso()})
             transaction.update(build_reference, {"queue_position": 0})
@@ -361,23 +421,105 @@ class FirestoreBuildStore(BuildStore):
     def start_execution(self, build_id: str) -> Build | None:
         transaction = self.client.transaction()
         reference = self._ref(build_id)
+        admission_reference = self._admission_ref()
 
         @firestore.transactional
         def start(transaction):
+            admission_snapshot = admission_reference.get(transaction=transaction)
+            leases = admission_snapshot.to_dict().get("leases", {}) if admission_snapshot.exists else {}
+            if float(leases.get(build_id, 0)) <= time.time():
+                return None
             snapshot = reference.get(transaction=transaction)
             if not snapshot.exists or snapshot.to_dict().get("status") != "queued":
                 return None
             started_at = now_iso()
             transaction.update(
                 reference,
-                {"execution_started_at": started_at, "queue_position": 0},
+                {"status": "planning", "execution_started_at": started_at, "queue_position": 0},
             )
             payload = snapshot.to_dict()
+            payload["status"] = "planning"
             payload["execution_started_at"] = started_at
             payload["queue_position"] = 0
             return Build.model_validate(payload)
 
         return start(transaction)
+
+    def has_active_lease(self, build_id: str) -> bool:
+        snapshot = self._admission_ref().get()
+        if not snapshot.exists:
+            return False
+        expiry = snapshot.to_dict().get("leases", {}).get(build_id)
+        return expiry is not None and float(expiry) > time.time()
+
+    def reconcile_expired_leases(self) -> list[str]:
+        """Best-effort recovery; each build update is guarded by the admission transaction."""
+        snapshot = self._admission_ref().get()
+        if not snapshot.exists:
+            return []
+        now = time.time()
+        expired = [
+            build_id
+            for build_id, expiry in snapshot.to_dict().get("leases", {}).items()
+            if float(expiry) <= now
+        ]
+        recovered: list[str] = []
+        for build_id in expired:
+            transaction = self.client.transaction()
+            admission_reference = self._admission_ref()
+            build_reference = self._ref(build_id)
+
+            @firestore.transactional
+            def recover(
+                transaction,
+                admission_reference=admission_reference,
+                build_reference=build_reference,
+                build_id=build_id,
+            ):
+                admission = admission_reference.get(transaction=transaction)
+                payload = admission.to_dict() if admission.exists else {}
+                leases = dict(payload.get("leases", {}))
+                if float(leases.get(build_id, now + 1)) > now:
+                    return False
+                leases.pop(build_id, None)
+                build_snapshot = build_reference.get(transaction=transaction)
+                status = build_snapshot.to_dict().get("status") if build_snapshot.exists else None
+                was_in_flight = status in {
+                    "planning", "building", "testing", "repairing"
+                }
+                if was_in_flight:
+                    transaction.update(
+                        build_reference,
+                        {
+                            "status": "queued",
+                            "queue_position": None,
+                            "dispatch_requested_at": None,
+                            "execution_started_at": None,
+                        },
+                    )
+                elif status == "queued":
+                    transaction.update(build_reference, {"dispatch_requested_at": None})
+                transaction.set(admission_reference, {**payload, "leases": leases, "updated_at": now_iso()})
+                return was_in_flight or status == "queued"
+
+            if recover(transaction):
+                try:
+                    build = self.get(build_id)
+                    self.add_event(
+                        build_id,
+                        BuildEvent(
+                            id=f"lease-expired-{int(now * 1000)}",
+                            type="build.lease.expired",
+                            stage=build.stage,
+                            status="queued",
+                            message="Worker lease expired; build returned to the execution queue.",
+                            metadata={"recovery": "automatic"},
+                        ),
+                    )
+                except BuildNotFoundError:
+                    pass
+                recovered.append(build_id)
+        return recovered
 
     def renew_build(self, build_id: str, settings: Settings) -> bool:
         transaction = self.client.transaction()

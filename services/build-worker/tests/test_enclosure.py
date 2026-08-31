@@ -6,7 +6,9 @@ from hardware_build.planning import deterministic_hardware_ir, deterministic_pro
 
 
 def test_enclosure_exports_nonempty_stl_files(tmp_path: Path):
-    hardware = deterministic_hardware_ir(deterministic_product_spec("desk monitor with display, knob and sensor"))
+    hardware = deterministic_hardware_ir(
+        deterministic_product_spec("desk monitor with display, knob and sensor")
+    )
     result = generate_enclosure(hardware, tmp_path)
     assert result.status == "passed"
     for filename in ("base.stl", "lid.stl"):
@@ -22,3 +24,15 @@ def test_parallel_enclosure_generation_is_deterministic(tmp_path: Path):
         executor.submit(generate_enclosure, hardware, directories[1]).result()
     for filename in ("base.stl", "lid.stl"):
         assert (directories[0] / filename).read_bytes() == (directories[1] / filename).read_bytes()
+
+
+def test_enclosure_dimensions_change_the_stl_and_evidence(tmp_path: Path):
+    hardware = deterministic_hardware_ir(deterministic_product_spec("desk monitor"))
+    default = generate_enclosure(hardware, tmp_path / "default")
+    larger = generate_enclosure(hardware, tmp_path / "larger", (100.0, 80.0, 35.0))
+
+    assert larger.evidence["dimensions_mm"] == [100.0, 80.0, 35.0]
+    assert default.evidence["dimensions_mm"] != larger.evidence["dimensions_mm"]
+    assert (tmp_path / "default/base.stl").read_bytes() != (
+        tmp_path / "larger/base.stl"
+    ).read_bytes()

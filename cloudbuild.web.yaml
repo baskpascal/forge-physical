@@ -11,7 +11,7 @@ steps:
       - -ceu
       - |
         docker pull '${_CACHE_IMAGE}' || true
-        docker build --cache-from '${_CACHE_IMAGE}' -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_BUILD_API_URL='${_API_URL}' -t '${_IMAGE}' -t '${_CACHE_IMAGE}' .
+        docker build --cache-from '${_CACHE_IMAGE}' --build-arg BUILDKIT_INLINE_CACHE=1 -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_BUILD_API_URL='${_API_URL}' -t '${_IMAGE}' -t '${_CACHE_IMAGE}' .
   - id: push
     name: gcr.io/cloud-builders/docker
     waitFor: [build]

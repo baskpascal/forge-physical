@@ -8,7 +8,7 @@ def test_api_runtime_excludes_hardware_tooling():
         encoding="utf-8"
     )
     api_stage = dockerfile.split("FROM runtime-base AS api-runtime", 1)[1].split(
-        "ARG TOOLCHAIN_IMAGE", 1
+        "FROM ${TOOLCHAIN_IMAGE} AS tooling-runtime", 1
     )[0]
 
     assert "platformio" not in api_stage.lower()
@@ -38,6 +38,47 @@ def test_cloud_build_publishes_and_deploys_distinct_runtime_images():
     assert "worker-deploy" in cloudbuild
     assert "waitFor: [api-push]" in cloudbuild
     assert "waitFor: [worker-push]" in cloudbuild
+
+
+def test_cloud_build_builders_do_not_call_gcloud():
+    cloudbuild = (REPOSITORY_ROOT / "cloudbuild.yaml").read_text(encoding="utf-8")
+    worker_build = cloudbuild.split("- id: worker-build", 1)[1].split(
+        "- id: web-build", 1
+    )[0]
+
+    assert "gcloud " not in worker_build
+    assert "docker build" in worker_build
+
+
+def test_worker_deploy_skips_unchanged_image_and_uses_job_image_path():
+    cloudbuild = (REPOSITORY_ROOT / "cloudbuild.yaml").read_text(encoding="utf-8")
+    worker_deploy = cloudbuild.split("- id: worker-deploy", 1)[1].split(
+        "- id: api-deploy", 1
+    )[0]
+
+    assert "spec.template.spec.template.spec.containers[0].image" in worker_deploy
+    assert "worker image/config unchanged; skipping revision" in worker_deploy
+    assert "gcloud artifacts docker images describe" in worker_deploy
+
+
+def test_remote_cache_is_best_effort_and_embedded_in_images():
+    for filename in ("cloudbuild.yaml", "cloudbuild.image.yaml", "cloudbuild.web.yaml"):
+        cloudbuild = (REPOSITORY_ROOT / filename).read_text(encoding="utf-8")
+        assert "--cache-from" in cloudbuild
+        assert "BUILDKIT_INLINE_CACHE=1" in cloudbuild
+        assert "docker pull" in cloudbuild and "|| true" in cloudbuild
+
+
+def test_builds_and_deploys_have_explicit_parallel_dependencies():
+    cloudbuild = (REPOSITORY_ROOT / "cloudbuild.yaml").read_text(encoding="utf-8")
+
+    assert "id: api-build" in cloudbuild and "waitFor: ['-']" in cloudbuild
+    assert "id: web-build" in cloudbuild
+    assert "waitFor: [toolchain-push]" in cloudbuild
+    assert "waitFor: [api-build]" in cloudbuild
+    assert "waitFor: [worker-build]" in cloudbuild
+    assert "waitFor: [web-build]" in cloudbuild
+    assert "waitFor: [web-push]" in cloudbuild
 
 
 def test_stable_toolchain_is_not_rebuilt_for_python_changes():

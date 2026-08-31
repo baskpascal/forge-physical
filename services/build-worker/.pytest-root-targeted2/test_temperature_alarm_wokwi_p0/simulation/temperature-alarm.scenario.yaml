@@ -1,0 +1,26 @@
+name: 'ESP32 temperature alarm'
+version: 1
+author: 'Forge Physical'
+steps:
+  - wait-serial: 'COUP_READY'
+  - set-control:
+      part-id: sensor
+      control: temperature
+      value: 25
+  - delay: 2500ms
+  - wait-serial: 'TEMP_NORMAL'
+  - expect-pin:
+      part-id: esp
+      pin: 10
+      value: 0
+  - set-control:
+      part-id: sensor
+      control: temperature
+      value: 35
+  - delay: 2500ms
+  - wait-serial: 'TEMP_ALERT'
+  - expect-pin:
+      part-id: esp
+      pin: 10
+      value: 1
+  - wait-serial: 'COUP_TEST_PASS'

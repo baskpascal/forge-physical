@@ -5,7 +5,7 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .agent import plan_product, propose_repair
@@ -13,7 +13,11 @@ from .artifacts import ArtifactWorkspace
 from .enclosure import generate_enclosure
 from .events import BuildReporter
 from .firmware import compile_firmware, deterministic_repair, generate_firmware
-from .incremental import build_fingerprints, reusable_phases
+from .incremental import (
+    build_fingerprints,
+    enclosure_dimensions_mm,
+    reusable_phases,
+)
 from .models import BuildStage, BuildStatus, VerificationReport
 from .planning import deterministic_hardware_ir, product_has_temperature_alarm
 from .security import redact_text
@@ -24,6 +28,10 @@ from .storage import BuildStore, get_store
 from .validators import validate_hardware
 
 logger = logging.getLogger("forge.build")
+
+
+class LeaseLostError(RuntimeError):
+    """Stop an obsolete worker without overwriting the successor's build state."""
 
 
 class BuildOrchestrator:
@@ -61,17 +69,27 @@ class BuildOrchestrator:
             timings["worker_startup_ms"] = max(
                 0,
                 round(
-                    (started_at - datetime.fromisoformat(build.dispatch_requested_at)).total_seconds()
+                    (
+                        started_at - datetime.fromisoformat(build.dispatch_requested_at)
+                    ).total_seconds()
                     * 1000
                 ),
             )
         heartbeat_stop = threading.Event()
+        lease_lost = threading.Event()
+
+        def ensure_lease() -> None:
+            if lease_lost.is_set():
+                raise LeaseLostError(f"Execution lease for {build_id} is no longer active")
 
         def heartbeat() -> None:
             while not heartbeat_stop.wait(self.settings.build_heartbeat_seconds):
                 try:
                     if not self.store.renew_build(build_id, self.settings):
-                        logger.warning("Build lease disappeared during execution", extra={"build_id": build_id})
+                        lease_lost.set()
+                        logger.warning(
+                            "Build lease disappeared during execution", extra={"build_id": build_id}
+                        )
                 except Exception as exc:
                     logger.warning(
                         "Could not renew build lease",
@@ -85,20 +103,53 @@ class BuildOrchestrator:
         enclosure_executor: ThreadPoolExecutor | None = None
         try:
             phase_started = time.perf_counter()
-            reporter.emit("plan.started", BuildStage.IDEA, "running", "Translating product intent into an engineering brief…", progress=5, build_status=BuildStatus.PLANNING)
+            reporter.emit(
+                "plan.started",
+                BuildStage.IDEA,
+                "running",
+                "Translating product intent into an engineering brief…",
+                progress=5,
+                build_status=BuildStatus.PLANNING,
+            )
             outcome = asyncio.run(plan_product(build.prompt, self.settings))
             build.product_spec = outcome.spec
             build.agent_mode = outcome.mode
-            if product_has_temperature_alarm(outcome.spec, build.prompt) and "temperature alarm" not in outcome.spec.features:
+            if (
+                product_has_temperature_alarm(outcome.spec, build.prompt)
+                and "temperature alarm" not in outcome.spec.features
+            ):
                 outcome.spec.features.append("temperature alarm")
             if outcome.note:
-                reporter.emit("agent.fallback", BuildStage.IDEA, "unavailable", outcome.note, progress=10, metadata={"mode": outcome.mode})
+                reporter.emit(
+                    "agent.fallback",
+                    BuildStage.IDEA,
+                    "unavailable",
+                    outcome.note,
+                    progress=10,
+                    metadata={"mode": outcome.mode},
+                )
+            timings["planning_ms"] = round((time.perf_counter() - phase_started) * 1000)
+            ensure_lease()
             if not outcome.spec.supported:
                 build.error = f"Unsupported scope: {outcome.spec.unsupported_reason}"
-                reporter.emit("build.unsupported", BuildStage.IDEA, "failed", build.error, progress=100, build_status=BuildStatus.UNSUPPORTED_SCOPE)
+                reporter.emit(
+                    "build.unsupported",
+                    BuildStage.IDEA,
+                    "failed",
+                    build.error,
+                    progress=100,
+                    build_status=BuildStatus.UNSUPPORTED_SCOPE,
+                )
                 return
-            reporter.emit("plan.completed", BuildStage.IDEA, "passed", f"Product brief ready: {outcome.spec.name}", progress=15, build_status=BuildStatus.BUILDING, metadata={"agent_mode": outcome.mode})
-            timings["planning_ms"] = round((time.perf_counter() - phase_started) * 1000)
+            reporter.emit(
+                "plan.completed",
+                BuildStage.IDEA,
+                "passed",
+                f"Product brief ready: {outcome.spec.name}",
+                progress=15,
+                build_status=BuildStatus.BUILDING,
+                metadata={"agent_mode": outcome.mode},
+            )
 
             phase_started = time.perf_counter()
             build.semantic_alignment = verify_semantic_alignment(
@@ -119,9 +170,8 @@ class BuildOrchestrator:
                 progress=20,
                 metadata=build.semantic_alignment.evidence,
             )
-            timings["semantic_alignment_ms"] = round(
-                (time.perf_counter() - phase_started) * 1000
-            )
+            timings["semantic_alignment_ms"] = round((time.perf_counter() - phase_started) * 1000)
+            ensure_lease()
 
             phase_started = time.perf_counter()
             build.hardware = deterministic_hardware_ir(outcome.spec, build.prompt)
@@ -129,8 +179,21 @@ class BuildOrchestrator:
             parent = self.store.get(build.parent_build_id) if build.parent_build_id else None
             reuse = reusable_phases(build.fingerprints, parent.fingerprints) if parent else set()
             component_ids = [component.component_id for component in build.hardware.components]
-            reporter.emit("component.selected", BuildStage.COMPONENTS, "passed", "Selected supported components from the verified catalog.", progress=28, metadata={"component_ids": component_ids})
-            reporter.emit("electronics.generated", BuildStage.ELECTRONICS, "running", "Hardware IR generated; checking every rail and signal…", progress=36)
+            reporter.emit(
+                "component.selected",
+                BuildStage.COMPONENTS,
+                "passed",
+                "Selected supported components from the verified catalog.",
+                progress=28,
+                metadata={"component_ids": component_ids},
+            )
+            reporter.emit(
+                "electronics.generated",
+                BuildStage.ELECTRONICS,
+                "running",
+                "Hardware IR generated; checking every rail and signal…",
+                progress=36,
+            )
             if (
                 parent
                 and "hardware" in reuse
@@ -156,16 +219,36 @@ class BuildOrchestrator:
                 )
             else:
                 build.electrical_validation = validate_hardware(build.hardware)
-            if not build.electrical_validation.passed:
-                build.verification = VerificationReport(electrical_compatibility="failed")
-                workspace.write_json("verification.json", build.verification)
-                reporter.emit("electronics.verified", BuildStage.ELECTRONICS, "failed", "Deterministic electrical validation found blocking issues.", progress=100, build_status=BuildStatus.NEEDS_REVIEW, metadata={"issues": [issue.model_dump(mode="json") for issue in build.electrical_validation.issues]})
-                return
-            reporter.emit("electronics.verified", BuildStage.ELECTRONICS, "passed", "Voltage, pin capabilities, GPIO allocation, I²C addresses and required connections passed.", progress=44)
-            build.artifact_paths.update(workspace.persist_build_inputs(build))
             timings["electrical_validation_ms"] = round(
                 (time.perf_counter() - phase_started) * 1000
             )
+            ensure_lease()
+            if not build.electrical_validation.passed:
+                build.verification = VerificationReport(electrical_compatibility="failed")
+                workspace.write_json("verification.json", build.verification)
+                reporter.emit(
+                    "electronics.verified",
+                    BuildStage.ELECTRONICS,
+                    "failed",
+                    "Deterministic electrical validation found blocking issues.",
+                    progress=100,
+                    build_status=BuildStatus.NEEDS_REVIEW,
+                    metadata={
+                        "issues": [
+                            issue.model_dump(mode="json")
+                            for issue in build.electrical_validation.issues
+                        ]
+                    },
+                )
+                return
+            reporter.emit(
+                "electronics.verified",
+                BuildStage.ELECTRONICS,
+                "passed",
+                "Voltage, pin capabilities, GPIO allocation, I²C addresses and required connections passed.",
+                progress=44,
+            )
+            build.artifact_paths.update(workspace.persist_build_inputs(build))
 
             # Enclosure generation reads only immutable, validated Hardware IR and writes to its
             # own directory. It can safely overlap firmware/compile/Wokwi and joins before verify.
@@ -195,88 +278,336 @@ class BuildOrchestrator:
                                 "artifact_hash": hashes,
                             },
                         )
-                result = generate_enclosure(build.hardware, enclosure_dir)
+                result = generate_enclosure(
+                    build.hardware,
+                    enclosure_dir,
+                    enclosure_dimensions_mm(build.prompt),
+                )
                 return result, round((time.perf_counter() - enclosure_started) * 1000), {}, None
 
             enclosure_future = enclosure_executor.submit(build_enclosure)
 
-            phase_started = time.perf_counter()
             firmware_dir = workspace.directory("firmware")
-            firmware_files = generate_firmware(build.hardware, firmware_dir)
-            build.artifact_paths["firmware_source"] = workspace.relative(firmware_files["source"])
-            build.artifact_paths["platformio"] = workspace.relative(firmware_files["platformio"])
-            reporter.emit("firmware.generated", BuildStage.FIRMWARE, "passed", "Generated ESP32-S3 firmware from the verified Hardware IR.", progress=52)
-            timings["firmware_generation_ms"] = round(
-                (time.perf_counter() - phase_started) * 1000
-            )
-
-            reporter.emit("firmware.compile.started", BuildStage.FIRMWARE, "running", "PlatformIO is compiling the actual firmware…", progress=58, build_status=BuildStatus.TESTING)
-            compile_started = time.perf_counter()
-            build.firmware = compile_firmware(self.settings, firmware_dir)
             attempts = 0
-            while build.firmware.status == "failed" and attempts < self.settings.max_repair_attempts:
-                attempts += 1
-                repair_started = time.perf_counter()
-                reporter.emit("firmware.compile.failed", BuildStage.FIRMWARE, "failed", f"Compiler rejected the firmware. Repair attempt {attempts}/{self.settings.max_repair_attempts} is starting.", progress=60, build_status=BuildStatus.REPAIRING, metadata={"exit_code": build.firmware.evidence.get("exit_code")})
-                source_path = firmware_files["source"]
-                compiler_output = str(build.firmware.evidence.get("output", ""))
-                repaired = False
-                try:
-                    proposal = asyncio.run(propose_repair(source_path.read_text(encoding="utf-8"), compiler_output, self.settings))
-                    if proposal and proposal["find"] in source_path.read_text(encoding="utf-8"):
-                        source = source_path.read_text(encoding="utf-8")
-                        source_path.write_text(source.replace(proposal["find"], proposal["replace"], 1), encoding="utf-8")
-                        repaired = True
-                        reporter.emit("agent.repair.started", BuildStage.FIRMWARE, "running", proposal["explanation"], progress=62, metadata={"agent": "EngineeringAgent", "attempt": attempts})
-                except Exception as exc:
-                    logger.warning("ADK repair proposal failed", extra={"build_id": build_id, "error": redact_text(str(exc), self.settings)})
-                if not repaired:
-                    repaired = deterministic_repair(source_path, compiler_output)
-                    reporter.emit("agent.repair.started", BuildStage.FIRMWARE, "running" if repaired else "failed", "Applied a constrained known-error repair." if repaired else "No safe automatic patch matched the compiler evidence.", progress=62, metadata={"agent": "deterministic-fallback", "attempt": attempts})
-                if not repaired:
-                    break
-                timings["repair_ms"] += round((time.perf_counter() - repair_started) * 1000)
-                reporter.emit("firmware.compile.started", BuildStage.FIRMWARE, "running", "Recompiling the repaired firmware with PlatformIO…", progress=64, build_status=BuildStatus.TESTING)
-                build.firmware = compile_firmware(self.settings, firmware_dir)
-            timings["platformio_compile_ms"] = round(
-                (time.perf_counter() - compile_started) * 1000
-            ) - timings["repair_ms"]
+            firmware_reused = False
+            if (
+                parent
+                and "firmware" in reuse
+                and parent.firmware
+                and parent.firmware.status == "passed"
+            ):
+                firmware_keys = (
+                    "platformio",
+                    "firmware_source",
+                    "firmware_bin",
+                    "firmware_elf",
+                )
+                reused_paths, reused_hashes = workspace.reuse_from(parent, firmware_keys)
+                if set(reused_paths) == set(firmware_keys):
+                    firmware_reused = True
+                    build.artifact_paths.update(reused_paths)
+                    build.firmware = parent.firmware.model_copy(deep=True)
+                    build.firmware.summary = (
+                        "Reused a content-addressed PlatformIO result from the parent build."
+                    )
+                    binary = self.settings.build_artifact_dir / reused_paths["firmware_bin"]
+                    elf = self.settings.build_artifact_dir / reused_paths["firmware_elf"]
+                    build.firmware.evidence.update(
+                        firmware_bin=str(binary), firmware_elf=str(elf), cache_hit=True
+                    )
+                    evidence = {
+                        "phase": "firmware",
+                        "cache_hit": True,
+                        "reused_from_build_id": parent.id,
+                        "artifact_hash": reused_hashes,
+                    }
+                    build.reuse_evidence.append(evidence)
+                    reporter.emit(
+                        "cache.firmware.hit",
+                        BuildStage.FIRMWARE,
+                        "passed",
+                        "Reused firmware source and a previously successful real PlatformIO compilation.",
+                        progress=70,
+                        build_status=BuildStatus.TESTING,
+                        metadata=evidence,
+                    )
 
-            if build.firmware.status == "passed":
-                binary = Path(str(build.firmware.evidence.get("firmware_bin")))
-                if binary.exists():
-                    build.artifact_paths["firmware_bin"] = workspace.relative(binary)
-                reporter.emit("firmware.compile.passed", BuildStage.FIRMWARE, "passed", f"PlatformIO compilation passed{f' after {attempts} repair attempt(s)' if attempts else ''}.", progress=70, metadata={"attempts": attempts})
-            elif build.firmware.status == "unavailable":
-                reporter.emit("firmware.compile.unavailable", BuildStage.FIRMWARE, "unavailable", build.firmware.summary, progress=70, metadata=build.firmware.evidence)
-            else:
-                reporter.emit("firmware.compile.failed", BuildStage.FIRMWARE, "failed", "Firmware still fails after the bounded repair loop.", progress=70, metadata={"attempts": attempts})
+            if not firmware_reused:
+                if parent:
+                    reporter.emit(
+                        "cache.firmware.miss",
+                        BuildStage.FIRMWARE,
+                        "measured",
+                        "Firmware inputs or required artifacts changed; generating and compiling fresh evidence.",
+                        progress=48,
+                        metadata={
+                            "phase": "firmware",
+                            "cache_hit": False,
+                            "reason": (
+                                "fingerprint_mismatch"
+                                if "firmware" not in reuse
+                                else "artifacts_incomplete"
+                            ),
+                        },
+                    )
+                phase_started = time.perf_counter()
+                firmware_files = generate_firmware(build.hardware, firmware_dir, build.prompt)
+                build.artifact_paths["firmware_source"] = workspace.relative(
+                    firmware_files["source"]
+                )
+                build.artifact_paths["platformio"] = workspace.relative(
+                    firmware_files["platformio"]
+                )
+                reporter.emit(
+                    "firmware.generated",
+                    BuildStage.FIRMWARE,
+                    "passed",
+                    "Generated ESP32-S3 firmware from the verified Hardware IR.",
+                    progress=52,
+                )
+                timings["firmware_generation_ms"] = round(
+                    (time.perf_counter() - phase_started) * 1000
+                )
+
+                reporter.emit(
+                    "firmware.compile.started",
+                    BuildStage.FIRMWARE,
+                    "running",
+                    "PlatformIO is compiling the actual firmware…",
+                    progress=58,
+                    build_status=BuildStatus.TESTING,
+                )
+                compile_started = time.perf_counter()
+                build.firmware = compile_firmware(self.settings, firmware_dir)
+                while (
+                    build.firmware.status == "failed"
+                    and attempts < self.settings.max_repair_attempts
+                ):
+                    attempts += 1
+                    repair_started = time.perf_counter()
+                    reporter.emit(
+                        "firmware.compile.failed",
+                        BuildStage.FIRMWARE,
+                        "failed",
+                        f"Compiler rejected the firmware. Repair attempt {attempts}/{self.settings.max_repair_attempts} is starting.",
+                        progress=60,
+                        build_status=BuildStatus.REPAIRING,
+                        metadata={"exit_code": build.firmware.evidence.get("exit_code")},
+                    )
+                    source_path = firmware_files["source"]
+                    compiler_output = str(build.firmware.evidence.get("output", ""))
+                    repaired = False
+                    try:
+                        proposal = asyncio.run(
+                            propose_repair(
+                                source_path.read_text(encoding="utf-8"),
+                                compiler_output,
+                                self.settings,
+                            )
+                        )
+                        if proposal and proposal["find"] in source_path.read_text(encoding="utf-8"):
+                            source = source_path.read_text(encoding="utf-8")
+                            source_path.write_text(
+                                source.replace(proposal["find"], proposal["replace"], 1),
+                                encoding="utf-8",
+                            )
+                            repaired = True
+                            reporter.emit(
+                                "agent.repair.started",
+                                BuildStage.FIRMWARE,
+                                "running",
+                                proposal["explanation"],
+                                progress=62,
+                                metadata={"agent": "EngineeringAgent", "attempt": attempts},
+                            )
+                    except Exception as exc:
+                        logger.warning(
+                            "ADK repair proposal failed",
+                            extra={
+                                "build_id": build_id,
+                                "error": redact_text(str(exc), self.settings),
+                            },
+                        )
+                    if not repaired:
+                        repaired = deterministic_repair(source_path, compiler_output)
+                        reporter.emit(
+                            "agent.repair.started",
+                            BuildStage.FIRMWARE,
+                            "running" if repaired else "failed",
+                            "Applied a constrained known-error repair."
+                            if repaired
+                            else "No safe automatic patch matched the compiler evidence.",
+                            progress=62,
+                            metadata={"agent": "deterministic-fallback", "attempt": attempts},
+                        )
+                    if not repaired:
+                        break
+                    timings["repair_ms"] += round((time.perf_counter() - repair_started) * 1000)
+                    reporter.emit(
+                        "firmware.compile.started",
+                        BuildStage.FIRMWARE,
+                        "running",
+                        "Recompiling the repaired firmware with PlatformIO…",
+                        progress=64,
+                        build_status=BuildStatus.TESTING,
+                    )
+                    build.firmware = compile_firmware(self.settings, firmware_dir)
+                timings["platformio_compile_ms"] = max(
+                    0,
+                    round((time.perf_counter() - compile_started) * 1000) - timings["repair_ms"],
+                )
+                ensure_lease()
+
+                if build.firmware.status == "passed":
+                    binary = Path(str(build.firmware.evidence.get("firmware_bin")))
+                    elf = firmware_dir / ".pio" / "build" / "esp32-s3-devkitc-1" / "firmware.elf"
+                    if binary.exists():
+                        build.artifact_paths["firmware_bin"] = workspace.relative(binary)
+                    if elf.exists():
+                        build.artifact_paths["firmware_elf"] = workspace.relative(elf)
+                        build.firmware.evidence["firmware_elf"] = str(elf)
+                    reporter.emit(
+                        "firmware.compile.passed",
+                        BuildStage.FIRMWARE,
+                        "passed",
+                        f"PlatformIO compilation passed{f' after {attempts} repair attempt(s)' if attempts else ''}.",
+                        progress=70,
+                        metadata={"attempts": attempts},
+                    )
+                elif build.firmware.status == "unavailable":
+                    reporter.emit(
+                        "firmware.compile.unavailable",
+                        BuildStage.FIRMWARE,
+                        "unavailable",
+                        build.firmware.summary,
+                        progress=70,
+                        metadata=build.firmware.evidence,
+                    )
+                else:
+                    reporter.emit(
+                        "firmware.compile.failed",
+                        BuildStage.FIRMWARE,
+                        "failed",
+                        "Firmware still fails after the bounded repair loop.",
+                        progress=70,
+                        metadata={"attempts": attempts},
+                    )
 
             simulation_dir = workspace.directory("simulation")
-            wokwi_files = generate_wokwi(build.hardware, firmware_dir, simulation_dir)
-            for key in ("diagram", "config", "scenario"):
-                build.artifact_paths[f"wokwi_{key}"] = workspace.relative(wokwi_files[key])
-            reporter.emit("simulation.started", BuildStage.SIMULATION, "running", "Prepared a real Wokwi circuit and automated sensor scenario.", progress=76)
-            phase_started = time.perf_counter()
-            build.simulation = run_wokwi(self.settings, simulation_dir, build.firmware.status == "passed")
-            for name, artifact_key in (("serial.log", "wokwi_serial_log"), ("simulation-result.json", "wokwi_result")):
-                path = simulation_dir / name
-                if path.exists():
-                    build.artifact_paths[artifact_key] = workspace.relative(path)
-            reporter.emit(f"simulation.{build.simulation.status}", BuildStage.SIMULATION, build.simulation.status, build.simulation.summary, progress=82, metadata=build.simulation.evidence)
-            timings["wokwi_ms"] = round((time.perf_counter() - phase_started) * 1000)
+            simulation_reused = False
+            if (
+                parent
+                and "simulation" in reuse
+                and parent.simulation
+                and parent.simulation.status == "passed"
+            ):
+                simulation_keys = (
+                    "wokwi_diagram",
+                    "wokwi_config",
+                    "wokwi_scenario",
+                    "wokwi_serial_log",
+                    "wokwi_result",
+                )
+                reused_paths, reused_hashes = workspace.reuse_from(parent, simulation_keys)
+                if set(reused_paths) == set(simulation_keys):
+                    simulation_reused = True
+                    build.artifact_paths.update(reused_paths)
+                    build.simulation = parent.simulation.model_copy(deep=True)
+                    build.simulation.summary = (
+                        "Reused a content-addressed, previously successful Wokwi run."
+                    )
+                    build.simulation.evidence["cache_hit"] = True
+                    evidence = {
+                        "phase": "simulation",
+                        "cache_hit": True,
+                        "reused_from_build_id": parent.id,
+                        "artifact_hash": reused_hashes,
+                    }
+                    build.reuse_evidence.append(evidence)
+                    reporter.emit(
+                        "cache.simulation.hit",
+                        BuildStage.SIMULATION,
+                        "passed",
+                        "Reused a real Wokwi result with identical firmware and scenario fingerprints.",
+                        progress=82,
+                        metadata=evidence,
+                    )
 
-            reporter.emit("enclosure.started", BuildStage.ENCLOSURE, "running", "Joining the enclosure branch generated in parallel from validated Hardware IR…", progress=86, build_status=BuildStatus.BUILDING)
+            if not simulation_reused:
+                if parent:
+                    reporter.emit(
+                        "cache.simulation.miss",
+                        BuildStage.SIMULATION,
+                        "measured",
+                        "Simulation inputs or successful evidence changed; running Wokwi again.",
+                        progress=72,
+                        metadata={
+                            "phase": "simulation",
+                            "cache_hit": False,
+                            "reason": (
+                                "fingerprint_mismatch"
+                                if "simulation" not in reuse
+                                else "successful_artifacts_unavailable"
+                            ),
+                        },
+                    )
+                wokwi_files = generate_wokwi(
+                    build.hardware, firmware_dir, simulation_dir, build.prompt
+                )
+                for key in ("diagram", "config", "scenario"):
+                    build.artifact_paths[f"wokwi_{key}"] = workspace.relative(wokwi_files[key])
+                reporter.emit(
+                    "simulation.started",
+                    BuildStage.SIMULATION,
+                    "running",
+                    "Prepared a real Wokwi circuit and automated sensor scenario.",
+                    progress=76,
+                )
+                phase_started = time.perf_counter()
+                build.simulation = run_wokwi(
+                    self.settings, simulation_dir, build.firmware.status == "passed"
+                )
+                for name, artifact_key in (
+                    ("serial.log", "wokwi_serial_log"),
+                    ("simulation-result.json", "wokwi_result"),
+                ):
+                    path = simulation_dir / name
+                    if path.exists():
+                        build.artifact_paths[artifact_key] = workspace.relative(path)
+                reporter.emit(
+                    f"simulation.{build.simulation.status}",
+                    BuildStage.SIMULATION,
+                    build.simulation.status,
+                    build.simulation.summary,
+                    progress=82,
+                    metadata=build.simulation.evidence,
+                )
+                timings["wokwi_ms"] = round((time.perf_counter() - phase_started) * 1000)
+                ensure_lease()
+
+            reporter.emit(
+                "enclosure.started",
+                BuildStage.ENCLOSURE,
+                "running",
+                "Joining the enclosure branch generated in parallel from validated Hardware IR…",
+                progress=86,
+                build_status=BuildStatus.BUILDING,
+            )
             (
                 build.enclosure,
                 timings["enclosure_ms"],
                 reused_enclosure_paths,
                 enclosure_reuse,
             ) = enclosure_future.result()
+            ensure_lease()
             build.artifact_paths.update(reused_enclosure_paths)
             if not reused_enclosure_paths:
-                build.artifact_paths["enclosure_base"] = workspace.relative(enclosure_dir / "base.stl")
-                build.artifact_paths["enclosure_lid"] = workspace.relative(enclosure_dir / "lid.stl")
+                build.artifact_paths["enclosure_base"] = workspace.relative(
+                    enclosure_dir / "base.stl"
+                )
+                build.artifact_paths["enclosure_lid"] = workspace.relative(
+                    enclosure_dir / "lid.stl"
+                )
             if enclosure_reuse:
                 build.reuse_evidence.append(enclosure_reuse)
                 reporter.emit(
@@ -287,7 +618,14 @@ class BuildOrchestrator:
                     progress=90,
                     metadata=enclosure_reuse,
                 )
-            reporter.emit("enclosure.generated", BuildStage.ENCLOSURE, build.enclosure.status, build.enclosure.summary, progress=92, metadata=build.enclosure.evidence)
+            reporter.emit(
+                "enclosure.generated",
+                BuildStage.ENCLOSURE,
+                build.enclosure.status,
+                build.enclosure.summary,
+                progress=92,
+                metadata=build.enclosure.evidence,
+            )
 
             build.verification = VerificationReport(
                 electrical_compatibility="passed",
@@ -298,13 +636,18 @@ class BuildOrchestrator:
             )
             verification_path = workspace.write_json("verification.json", build.verification)
             build.artifact_paths["verification"] = workspace.relative(verification_path)
-            reporter.emit("verification.completed", BuildStage.VERIFICATION, "passed", "Verification report issued. Physical assembly, EMI/EMC and thermals remain explicitly unverified.", progress=97, metadata=build.verification.model_dump(mode="json"))
+            reporter.emit(
+                "verification.completed",
+                BuildStage.VERIFICATION,
+                "passed",
+                "Verification report issued. Physical assembly, EMI/EMC and thermals remain explicitly unverified.",
+                progress=97,
+                metadata=build.verification.model_dump(mode="json"),
+            )
             if self.settings.artifact_bucket:
                 phase_started = time.perf_counter()
                 uploaded = workspace.publish(self.settings.artifact_bucket)
-                timings["artifact_upload_ms"] = round(
-                    (time.perf_counter() - phase_started) * 1000
-                )
+                timings["artifact_upload_ms"] = round((time.perf_counter() - phase_started) * 1000)
                 reporter.emit(
                     "artifacts.published",
                     BuildStage.VERIFICATION,
@@ -318,55 +661,97 @@ class BuildOrchestrator:
                 and build.enclosure.status == "passed"
                 and build.simulation.status == "passed"
             )
-            final_status = BuildStatus.COMPLETED if digital_evidence_passed else BuildStatus.NEEDS_REVIEW
-            final_event = "build.completed" if final_status == BuildStatus.COMPLETED else "build.needs_review"
+            final_status = (
+                BuildStatus.COMPLETED if digital_evidence_passed else BuildStatus.NEEDS_REVIEW
+            )
+            final_event = (
+                "build.completed" if final_status == BuildStatus.COMPLETED else "build.needs_review"
+            )
             final_message = (
                 "Verified digital prototype is ready. Physical assembly is not verified."
                 if final_status == BuildStatus.COMPLETED
                 else "Digital artifacts are ready, but at least one executed verification step failed or needs review."
             )
-            reporter.emit(final_event, BuildStage.COMPLETE, "passed" if final_status == BuildStatus.COMPLETED else "unavailable", final_message, progress=100, build_status=final_status)
+            reporter.emit(
+                final_event,
+                BuildStage.COMPLETE,
+                "passed" if final_status == BuildStatus.COMPLETED else "unavailable",
+                final_message,
+                progress=100,
+                build_status=final_status,
+            )
+        except LeaseLostError:
+            logger.warning(
+                "Stopping obsolete build execution after lease loss",
+                extra={"build_id": build_id},
+            )
         except Exception as exc:
             build.error = redact_text(f"{type(exc).__name__}: {exc}", self.settings)
             # Do not attach the traceback: third-party exceptions can include request credentials.
             logger.error("Build failed", extra={"build_id": build_id, "error": build.error})
-            reporter.emit("build.failed", build.stage, "failed", "The worker stopped on real evidence; no success state was fabricated.", progress=100, build_status=BuildStatus.FAILED, metadata={"error": build.error})
+            reporter.emit(
+                "build.failed",
+                build.stage,
+                "failed",
+                "The worker stopped on real evidence; no success state was fabricated.",
+                progress=100,
+                build_status=BuildStatus.FAILED,
+                metadata={"error": build.error},
+            )
         finally:
             heartbeat_stop.set()
             heartbeat_thread.join(timeout=2)
             if enclosure_executor is not None:
-                enclosure_executor.shutdown(wait=False, cancel_futures=True)
-            timings["total_ms"] = round((time.perf_counter() - total_started) * 1000)
-            build.timings_ms = timings
-            try:
-                reporter.emit(
-                    "build.metrics",
-                    build.stage,
-                    "measured",
-                    "Measured queue and hardware pipeline phase timings.",
-                    metadata={"timings_ms": timings},
+                enclosure_executor.shutdown(wait=True, cancel_futures=True)
+            if not lease_lost.is_set():
+                timings["total_ms"] = max(
+                    round((time.perf_counter() - total_started) * 1000),
+                    round(
+                        (
+                            datetime.now(UTC) - datetime.fromisoformat(build.created_at)
+                        ).total_seconds()
+                        * 1000
+                    ),
                 )
-            except Exception as exc:
-                logger.warning(
-                    "Could not persist build timings",
-                    extra={"build_id": build_id, "error": redact_text(str(exc), self.settings)},
-                )
-            try:
-                self.store.release_build(build_id)
-            except Exception as exc:
-                logger.warning(
-                    "Could not release build admission lease",
-                    extra={"build_id": build_id, "error": redact_text(str(exc), self.settings)},
-                )
-            try:
-                from .service import dispatch_next_queued
+                build.timings_ms = timings
+                try:
+                    reporter.emit(
+                        "build.metrics",
+                        build.stage,
+                        "measured",
+                        "Measured queue and hardware pipeline phase timings.",
+                        metadata={"timings_ms": timings},
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Could not persist build timings",
+                        extra={
+                            "build_id": build_id,
+                            "error": redact_text(str(exc), self.settings),
+                        },
+                    )
+                try:
+                    self.store.release_build(build_id)
+                except Exception as exc:
+                    logger.warning(
+                        "Could not release build admission lease",
+                        extra={
+                            "build_id": build_id,
+                            "error": redact_text(str(exc), self.settings),
+                        },
+                    )
+                try:
+                    from .service import dispatch_next_queued
 
-                dispatch_next_queued(self.settings, self.store)
-            except Exception as exc:
-                logger.warning(
-                    "Could not dispatch the next queued build",
-                    extra={"build_id": build_id, "error": redact_text(str(exc), self.settings)},
-                )
+                    dispatch_next_queued(self.settings, self.store)
+                except Exception as exc:
+                    logger.warning(
+                        "Could not dispatch the next queued build",
+                        extra={
+                            "build_id": build_id,
+                            "error": redact_text(str(exc), self.settings),
+                        },
+                    )
 
 
 def run_build(build_id: str) -> None:
