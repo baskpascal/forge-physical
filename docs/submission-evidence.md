@@ -4,19 +4,20 @@ Every production claim below must remain tied to a reproducible check or immutab
 
 ## Latest production evidence run
 
-Build [`8cf8198a86f0`](https://forge-web-rldj6ghw7q-uc.a.run.app/build/8cf8198a86f0) was started through the public API on 2026-08-31. The API returned the queued Build Room URL in 1,096 ms, before the Cloud Run Job began its heavy work. The run then recorded 17 Firestore events and produced 13 downloadable Cloud Storage artifacts.
+Build [`b4381f2ebfbd`](https://forge-web-rldj6ghw7q-uc.a.run.app/build/b4381f2ebfbd) was started through the public API on 2026-08-31. The API returned the queued Build Room URL in 6,607 ms, before the Cloud Run Job began its heavy work. The run then recorded 20 Firestore events and produced 13 downloadable Cloud Storage artifacts.
 
 - Google ADK planned the product with `gemini-3.5-flash` on Vertex AI.
 - `gemini-embedding-001`, `text-embedding-005`, and `text-multilingual-embedding-002` each returned runtime-verified semantic-alignment evidence.
 - All nine deterministic electrical checks passed.
-- PlatformIO compiled a real 262,752-byte `firmware.bin` and retained compiler output.
+- A controlled compiler failure produced `firmware.compile.failed`; Google ADK's `EngineeringAgent` identified `Serial.begin_broken`, applied the bounded repair, and PlatformIO recompilation passed.
+- PlatformIO compiled a real `firmware.bin` and retained compiler output.
 - Parametric base and lid STL files loaded in the hosted 3D Build Room.
 - Desktop and 390 px mobile-width browser checks passed without console errors or horizontal overflow.
 - The run correctly ended in `needs_review`: the configured Wokwi value does not match the documented 44-character `wok_` CI token format, so simulation remains unavailable rather than falsely passing.
 
 | Claim | Source / test | Production evidence | Limitation |
 | --- | --- | --- | --- |
-| Gemini plans the product | `hardware_build/agent.py`, agent tests | Build `agent_mode` and `plan.completed` event | A schema-invalid response is recorded as fallback, never hidden |
+| Gemini plans and repairs the product | `hardware_build/agent.py`, agent tests | Build `agent_mode`, `plan.completed`, `firmware.compile.failed`, `agent.repair.started`, and second `firmware.compile.started` events | A schema-invalid response is recorded as fallback, never hidden |
 | Three additional Google models verify intent | `semantic_alignment.py`, semantic-alignment test | Per-model dimension, similarity and latency in `semantic-alignment.json` | Raw embedding vectors are never persisted |
 | Async API → worker | `service.py`, service tests | Public `POST /api/builds`; Cloud Run Job execution name | Cold start may delay worker start |
 | Firestore state/event stream | `storage.py`, integration check | Build document plus ordered events | Firestore is not a hardware measurement |

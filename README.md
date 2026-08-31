@@ -191,7 +191,7 @@ configuration alone is never reported as runtime verification.
 ## Hackathon evidence
 
 - Hosted Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>
-- Latest production evidence build: <https://forge-web-rldj6ghw7q-uc.a.run.app/build/8cf8198a86f0>
+- Latest production evidence build: <https://forge-web-rldj6ghw7q-uc.a.run.app/build/b4381f2ebfbd>
 - [Submission evidence index](docs/submission-evidence.md)
 - [Architecture diagram](docs/architecture.png)
 - [Under-four-minute demo script](docs/demo-script.md)

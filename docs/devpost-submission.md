@@ -44,6 +44,8 @@ The hardest part was making evidence honest. A CLI exit code is not enough to cl
 
 Submit: “Create an ESP32 temperature alarm. Use a temperature sensor. Turn the warning LED on when temperature is above 30°C. The design must be testable automatically in Wokwi.” Poll the returned build ID until a terminal state, then inspect agent mode, events, simulation evidence, and artifact links. No judge credential is required for the hosted Build Room or public repository. If capacity is temporarily full, the API returns `429` with a `Retry-After` delay and creates no build.
 
+For an immediately inspectable production run, open [build `b4381f2ebfbd`](https://forge-web-rldj6ghw7q-uc.a.run.app/build/b4381f2ebfbd). It demonstrates Google ADK planning, the intentional compiler failure, `EngineeringAgent`'s evidence-grounded repair, successful PlatformIO recompilation, Firestore events, Cloud Storage artifacts, and generated STL files. Wokwi correctly remains `unavailable` because the deployed Secret Manager value is not a valid CI token; this is not represented as a successful hardware simulation.
+
 ## Eligibility facts to fill before submission
 
 - Project start date: **August 30, 2026** (first repository commit: `e732a86`)
