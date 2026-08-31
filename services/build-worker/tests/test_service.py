@@ -272,6 +272,62 @@ def test_failed_simulation_never_marks_build_completed(tmp_path: Path, monkeypat
     assert "build.completed" not in event_types
 
 
+def test_engineering_agent_receives_real_compiler_evidence(tmp_path: Path, monkeypatch):
+    store = LocalJsonBuildStore(tmp_path / "data")
+    settings = Settings(
+        build_data_dir=tmp_path / "data",
+        build_artifact_dir=tmp_path / "artifacts",
+        max_repair_attempts=1,
+    )
+    response = create_build(
+        "Build a desk monitor with a screen and temperature sensor",
+        dispatch=False,
+        store=store,
+        settings=settings,
+    )
+    compile_calls = 0
+    received: dict[str, str] = {}
+
+    def compile_with_one_failure(_settings, firmware_dir):
+        nonlocal compile_calls
+        compile_calls += 1
+        if compile_calls == 1:
+            return ToolResult(
+                status="failed",
+                summary="compiler rejected generated firmware",
+                evidence={"exit_code": 1, "output": "main.cpp: no member named begin_broken"},
+            )
+        binary = firmware_dir / ".pio" / "build" / "esp32-s3-devkitc-1" / "firmware.bin"
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_bytes(b"repaired-firmware")
+        return ToolResult(
+            status="passed",
+            summary="compiled after repair",
+            evidence={"exit_code": 0, "firmware_bin": str(binary)},
+        )
+
+    async def repair_from_evidence(source: str, compiler_output: str, _settings):
+        received.update(source=source, compiler_output=compiler_output)
+        return {
+            "find": "void setup()",
+            "replace": "void setup()",
+            "explanation": "Repair grounded in the compiler diagnostic.",
+        }
+
+    monkeypatch.setattr("hardware_build.orchestrator.compile_firmware", compile_with_one_failure)
+    monkeypatch.setattr("hardware_build.orchestrator.propose_repair", repair_from_evidence)
+
+    BuildOrchestrator(store, settings).run(response.build_id)
+
+    assert "void setup()" in received["source"]
+    assert "begin_broken" in received["compiler_output"]
+    repair_events = [
+        event for event in store.events(response.build_id) if event.type == "agent.repair.started"
+    ]
+    assert repair_events[0].metadata == {"agent": "EngineeringAgent", "attempt": 1}
+    assert store.get(response.build_id).firmware.status == "passed"
+
+
 def test_http_dispatch_requires_a_secret(tmp_path: Path):
     store = LocalJsonBuildStore(tmp_path)
     settings = Settings(worker_dispatch_url="https://worker.invalid")
