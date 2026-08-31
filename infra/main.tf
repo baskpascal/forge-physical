@@ -326,6 +326,10 @@ resource "google_cloud_run_v2_service" "api" {
         name  = "PUBLIC_BUILD_URL"
         value = var.public_build_url
       }
+      env {
+        name  = "PUBLIC_API_URL"
+        value = var.public_api_url
+      }
     }
   }
 
