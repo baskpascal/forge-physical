@@ -33,7 +33,7 @@ steps:
       - '--set-env-vars=BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL}'
       - '--set-secrets=WOKWI_CLI_TOKEN=wokwi-cli-token:latest'
       - '--task-timeout=30m'
-      - '--memory=2Gi'
+      - '--memory=4Gi'
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
     args:

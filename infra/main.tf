@@ -193,7 +193,7 @@ resource "google_cloud_run_v2_job" "worker" {
         resources {
           limits = {
             cpu    = "2"
-            memory = "2Gi"
+            memory = "4Gi"
           }
         }
 
