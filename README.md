@@ -149,6 +149,10 @@ Production is provisioned reproducibly from [infra/](infra/README.md) with dedic
 `forge-worker` service accounts and ADC. The Terraform configuration never stores a Wokwi token in
 state; the worker receives it only as a Secret Manager reference.
 
+The API and worker share one Python package but ship as separate Docker targets. `api-runtime`
+contains only the HTTP/MCP application, while `worker-runtime` adds the prewarmed PlatformIO
+toolchains, build cache and Wokwi CLI required by asynchronous hardware jobs.
+
 ## End-to-End Hardware Validation
 
 The production golden path is an ESP32 temperature alarm: a user prompt is planned with Gemini
@@ -215,6 +219,9 @@ npm audit --audit-level=high
 
 The test suite covers the catalog, Hardware IR, validators, build state machine, MCP surface,
 firmware generation/repair helpers, and STL export. The smoke flow uses the actual PlatformIO tool.
+After deployment, `scripts/verify-production-golden-path.ps1` performs the guarded live proof for
+the injected compile failure, EngineeringAgent repair, recompilation, Wokwi scenario and runtime
+budget; it always restores the worker Job configuration.
 
 ## Intentional limits
 

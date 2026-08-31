@@ -9,8 +9,13 @@ variable "region" {
   default     = "us-central1"
 }
 
-variable "image" {
-  description = "Existing backend image to run in Cloud Run. Build and push it after the bootstrap resources apply."
+variable "api_image" {
+  description = "Existing lightweight API image to run in Cloud Run."
+  type        = string
+}
+
+variable "worker_image" {
+  description = "Existing prewarmed worker image to run as the Cloud Run Job."
   type        = string
 }
 

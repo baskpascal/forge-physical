@@ -21,8 +21,11 @@ terraform init
 # First create the registry and foundation, then push the application image.
 terraform apply -target=google_artifact_registry_repository.backend
 
-docker build -f services/build-worker/Dockerfile -t us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/backend:prod .
-docker push us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/backend:prod
+docker build -f services/build-worker/Dockerfile --target api-runtime -t us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/api:prod .
+docker push us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/api:prod
+
+docker build -f services/build-worker/Dockerfile --target worker-runtime -t us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/worker:prod .
+docker push us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/worker:prod
 
 docker build -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_BUILD_API_URL=https://forge-api-rldj6ghw7q-uc.a.run.app -t us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/web:prod .
 docker push us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/web:prod
@@ -42,6 +45,21 @@ sets the override.
 To add or rotate Wokwi without exposing it in Terraform state, pass the token only through standard
 input: `gcloud secrets versions add wokwi-cli-token --data-file=-`. The Job reads Secret Manager
 `latest`; do not add the token to Terraform variables, GitHub, or Cloud Build substitutions.
+
+On Windows, the checked-in helper validates the token envelope and keeps input hidden:
+
+```powershell
+.\scripts\rotate-wokwi-token.ps1 -Project supple-voyage-507119-v0
+```
+
+After rotating the token and deploying, run the guarded production proof. It temporarily injects
+one known compiler error, requires an `EngineeringAgent` repair and second successful compile,
+requires Wokwi behavioral validation, checks the four-minute target, and restores the Job
+configuration in a `finally` block:
+
+```powershell
+.\scripts\verify-production-golden-path.ps1
+```
 
 ## GitHub Actions WIF
 
