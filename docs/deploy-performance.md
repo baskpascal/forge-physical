@@ -62,8 +62,8 @@ worker result exposed that the application image copied `/root/.platformio` out 
 toolchain image, repacking and re-uploading the largest filesystem tree for every Python
 change. Version `v2` makes the toolchain the worker's direct parent image and adds only the
 application virtualenv above it. This preserves the real preheated compiler while allowing
-Artifact Registry to reuse the stable base layers. A successful production run is still
-required before claiming the resulting worker build/push reduction as measured.
+Artifact Registry to reuse the stable base layers. The production runs below validate the
+result rather than relying on a projection.
 
 The branch benchmark submission also exposed a local-source packaging issue: Terraform's
 downloaded provider directory was entering the upload and Docker build context. Adding it
@@ -80,6 +80,35 @@ full-deploy after value; it demonstrates both the one-time toolchain cost and th
 layer fix. The worker/API packaging now also installs third-party Python dependencies in a
 stable layer and the application itself from a small wheel layer, so source-only changes do
 not repack the full Google ADK virtualenv.
+
+## Production after measurements
+
+All after runs used `E2_HIGHCPU_8`, the 1.05 MiB source context, immutable commit tags, and
+the production Artifact Registry/Cloud Run resources. Cloud Build queue time is reported
+separately because it is managed-capacity latency rather than pipeline execution. The
+end-to-end column includes local source submission, queue, and Cloud Build wall clock.
+
+| Route | Cloud Build | Commit/cache state | Submit | Queue | Build wall | End to end |
+|---|---|---|---:|---:|---:|---:|
+| Full | `bf26d186-5025-4555-8602-248a2e5b2ac8` | BuildKit metadata first fill | 5.4 s | 58.5 s | **260.6 s (4:20.6)** | **324.5 s (5:24.5)** |
+| Shared backend | `3b79f5c6-8399-4b82-bf3b-19a8f7d1e249` | warm, API + worker; no web | 5.7 s | 51.9 s | **95.8 s** | **153.4 s (2:33.4)** |
+| Web only | `5e3f0180-1568-448e-8f04-ed0aeba223ed` | warm; no API/worker build | 6.3 s | 51.8 s | **53.1 s** | **111.2 s (1:51.2)** |
+| API only | `9827e527-492f-4712-ab5e-c95c13a27902` | warm; no worker/web build | 6.1 s | 61.7 s | **61.6 s** | **129.4 s (2:09.4)** |
+| Worker only | `81e8dcff-626c-4c9a-9239-1bf4b2d25627` | warm; no API/web build | 6.6 s | 47.9 s | **86.0 s** | **140.5 s (2:20.5)** |
+
+The full Cloud Build wall clock improved from 1,020.5 s to 260.6 s, a 74.5% reduction and
+inside the <=5 minute p50 target. End-to-end full time was 5:24.5 because this sample spent
+58.5 s waiting for Cloud Build capacity. Web-only met the ideal <=2 minute end-to-end goal;
+API-only and worker-only did not build or deploy the unrelated runtimes.
+
+The first remote-cache implementation passed `BUILDKIT_INLINE_CACHE=1` while still using
+Docker's legacy builder; Cloud Build explicitly warned that the argument was not consumed.
+The final pipeline sets `DOCKER_BUILDKIT=1` on every image build. The source-only production
+run then measured API build 48.1 s, worker build 72.6 s, API push 3.2 s, and worker push
+5.2 s. By comparison, the pre-fix successful run measured worker build/push at 278.9 s and
+187.0 s. Skipped route steps still acquire their Cloud Build builder image and can show a
+non-zero timing, but their scripts exit before build, push, or deploy; route assertions and
+logs verify that no unrelated revision is created.
 
 ## Deployment routing and cache contract
 
@@ -110,7 +139,7 @@ vCPU-seconds and cost using identical warm-cache builds before retaining it perm
 
 ## Reproduce the benchmark
 
-After this branch is merged, trigger one full deploy, then web-only, API-only, and worker-only
+For additional samples, trigger one full deploy, then web-only, API-only, and worker-only
 commits. Do not reuse numbers from unrelated cache states.
 
 ```bash
@@ -135,5 +164,6 @@ Target acceptance remains:
 | Worker only | no API/web rebuild |
 | Docs only | no production deploy |
 
-Final after-values must come from successful production runs; no projected number should be
-presented as measured.
+The table above contains successful production runs. Collect multiple samples after merge
+before describing them as p50/p95 distributions; the current figures are individual
+observations, not invented percentiles.
