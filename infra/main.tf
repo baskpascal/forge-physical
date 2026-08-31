@@ -5,6 +5,7 @@ locals {
   build_source_bucket = "${var.project_id}-forge-build-source"
   api_sa              = "forge-api@${var.project_id}.iam.gserviceaccount.com"
   worker_sa           = "forge-worker@${var.project_id}.iam.gserviceaccount.com"
+  web_sa              = "forge-web@${var.project_id}.iam.gserviceaccount.com"
   build_sa            = "forge-build@${var.project_id}.iam.gserviceaccount.com"
 }
 
@@ -161,6 +162,11 @@ resource "google_storage_bucket_iam_member" "build_reads_source" {
   member = "serviceAccount:${local.build_sa}"
 }
 
+resource "google_service_account" "web" {
+  account_id   = "forge-web"
+  display_name = "Forge Build Room"
+}
+
 resource "google_service_account_iam_member" "build_uses_self" {
   service_account_id = google_service_account.build.name
   role               = "roles/iam.serviceAccountUser"
@@ -168,7 +174,7 @@ resource "google_service_account_iam_member" "build_uses_self" {
 }
 
 resource "google_service_account_iam_member" "build_runtime_user" {
-  for_each = toset([local.api_sa, local.worker_sa])
+  for_each = toset([local.api_sa, local.worker_sa, local.web_sa])
 
   service_account_id = "projects/${var.project_id}/serviceAccounts/${each.value}"
   role               = "roles/iam.serviceAccountUser"
@@ -366,4 +372,47 @@ resource "google_service_account_iam_member" "github_wif" {
   service_account_id = google_service_account.build.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github[0].name}/attribute.repository/${var.github_repository}"
+}
+
+resource "google_cloud_run_v2_service" "web" {
+  name     = "forge-web"
+  location = var.region
+
+  # Cloud Run echoes a legacy root scaling block even though desired scaling
+  # lives under the revision template.
+  lifecycle {
+    ignore_changes = [scaling]
+  }
+
+  template {
+    service_account = google_service_account.web.email
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 10
+    }
+
+    containers {
+      image = var.web_image
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+
+      ports {
+        container_port = 8080
+      }
+    }
+  }
+}
+
+resource "google_cloud_run_v2_service_iam_member" "public_web" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.web.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }

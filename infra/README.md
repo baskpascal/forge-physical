@@ -1,8 +1,8 @@
 # Forge Physical Google Cloud infrastructure
 
 Terraform creates only the production MVP dependencies: Artifact Registry, Firestore, a private
-artifact bucket, least-privilege runtime/build identities, the Cloud Run API and worker Job, and an
-empty Wokwi secret. It never stores a secret value in state.
+artifact bucket, least-privilege runtime/build identities, the Cloud Run API, hosted Build Room,
+worker Job, and an empty Wokwi secret. It never stores a secret value in state.
 
 Infrastructure runs in `us-central1`; Gemini 3.5 Flash inference uses independent multi-region
 `VERTEX_LOCATION=us` on the API and worker.
@@ -24,13 +24,17 @@ terraform apply -target=google_artifact_registry_repository.backend
 docker build -f services/build-worker/Dockerfile -t us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/backend:prod .
 docker push us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/backend:prod
 
+docker build -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_BUILD_API_URL=https://forge-api-rldj6ghw7q-uc.a.run.app -t us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/web:prod .
+docker push us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/web:prod
+
 terraform fmt
 terraform validate
 terraform plan -out=tfplan
 terraform apply tfplan
 ```
 
-After apply, use `terraform output -raw api_url` for `/health`, and execute the Job with
+After apply, use `terraform output -raw api_url` for `/health` and `terraform output -raw web_url`
+for the public Build Room. Execute the Job with
 `gcloud run jobs execute forge-worker --region us-central1`. The Job intentionally fails without a
 `BUILD_ID`; that proves it is executable but not a real build. A real API `prototype_start` call
 sets the override.

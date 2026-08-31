@@ -2,10 +2,12 @@ substitutions:
   _REGION: us-central1
   _REPOSITORY: forge-physical
   _API_SERVICE: forge-api
+  _WEB_SERVICE: forge-web
   _WORKER_JOB: forge-worker
   _GEMINI_MODEL: gemini-3.5-flash
   _IMAGE_TAG: manual
-  _PUBLIC_BUILD_URL: http://localhost:3000
+  _PUBLIC_BUILD_URL: https://forge-web-rldj6ghw7q-uc.a.run.app
+  _PUBLIC_API_URL: https://forge-api-rldj6ghw7q-uc.a.run.app
 
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -18,6 +20,18 @@ steps:
       - .
   - name: gcr.io/cloud-builders/docker
     args: [push, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:${_IMAGE_TAG}']
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - apps/web/Dockerfile
+      - --build-arg
+      - NEXT_PUBLIC_BUILD_API_URL=${_PUBLIC_API_URL}
+      - -t
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}'
+      - .
+  - name: gcr.io/cloud-builders/docker
+    args: [push, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}']
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
     args:
@@ -45,9 +59,21 @@ steps:
       - '--service-account=forge-api@$PROJECT_ID.iam.gserviceaccount.com'
       - '--allow-unauthenticated'
       - '--set-env-vars=BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL},PUBLIC_BUILD_URL=${_PUBLIC_BUILD_URL},CLOUD_RUN_JOB_NAME=projects/$PROJECT_ID/locations/${_REGION}/jobs/${_WORKER_JOB}'
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - '${_WEB_SERVICE}'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}'
+      - '--region=${_REGION}'
+      - '--service-account=forge-web@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--allow-unauthenticated'
+      - '--memory=512Mi'
 
 images:
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:${_IMAGE_TAG}'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}'
 
 options:
   logging: CLOUD_LOGGING_ONLY

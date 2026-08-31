@@ -11,6 +11,10 @@ gha-creds-*.json
 node_modules/
 **/node_modules/
 .venv/
+.verify-venv/
+.pytest-tmp*/
+.edge-arch-render/
+.ruff_cache/
 .platformio-venv/
 **/__pycache__/
 *.pyc

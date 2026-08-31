@@ -28,7 +28,7 @@ export function BuildRoom({ buildId }: { buildId: string }) {
   const activity = build.events.at(-1)?.message ?? "Worker is accepting the build…";
   return (
     <main className="room-shell">
-      <div className="room-topline"><Link href="/"><span className="brand-mark mini"><i /><i /><i /></span>FORGE PHYSICAL</Link><div><span className={`live-dot ${transport}`} />{transport === "firestore" ? "FIRESTORE LIVE" : "LOCAL EVENT STREAM"}<b>BUILD {build.id.toUpperCase()}</b></div></div>
+      <div className="room-topline"><Link href="/"><span className="brand-mark mini"><i /><i /><i /></span>FORGE PHYSICAL</Link><div><span className={`live-dot ${transport}`} />{transport === "firestore" ? "FIRESTORE LIVE" : "CLOUD API STREAM"}<b>BUILD {build.id.toUpperCase()}</b></div></div>
       <header className="build-header"><div><p className="eyebrow">PRODUCT / VERSION {build.version}</p><h1>{title}</h1></div><div className={`status-badge ${build.status}`}><i />{build.status.replaceAll("_", " ")}</div></header>
       <section className="workbench">
         <ProductCanvas build={build} />

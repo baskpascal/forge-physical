@@ -145,33 +145,57 @@ steps:
     return {"diagram": diagram, "config": wokwi_toml, "scenario": scenario, "firmware": firmware_bin, "elf": firmware_elf}
 
 
+def wokwi_token_is_valid(token: str | None) -> bool:
+    """Validate the documented Wokwi CI token envelope without exposing it."""
+    normalized = token.strip() if token else ""
+    return normalized.startswith("wok_") and len(normalized) == 44
+
+
+def _scenario_evidence(simulation_dir: Path) -> tuple[Path | None, str, list[str]]:
+    scenario_paths = sorted(simulation_dir.glob("*.scenario.yaml"))
+    if len(scenario_paths) != 1:
+        return None, "", []
+    scenario = scenario_paths[0]
+    scenario_text = scenario.read_text(encoding="utf-8")
+    checks = ["boot", "OLED initialization", "sensor initialization", "temperature read"]
+    if "CHECK:MOTION_READ:PASS" in scenario_text:
+        checks.extend(["motion sensor initialization", "motion read"])
+    if "TEMP_NORMAL" in scenario_text:
+        checks = ["temperature_normal", "temperature_alert", "LED off below 30C", "LED on above 30C"]
+    return scenario, scenario_text, checks
+
+
 def run_wokwi(settings: Settings, simulation_dir: Path, firmware_passed: bool) -> ToolResult:
     if not firmware_passed:
         return ToolResult(status="not_run", summary="Simulation requires a compiled firmware binary.")
+    scenario, scenario_text, checks = _scenario_evidence(simulation_dir)
+    if scenario is None:
+        return ToolResult(status="failed", summary="Wokwi project must contain exactly one automation scenario.")
     if not settings.wokwi_cli_token:
         return ToolResult(
             status="unavailable",
             summary="Wokwi CI is configured but no WOKWI_CLI_TOKEN is available.",
-            evidence={"required_env": "WOKWI_CLI_TOKEN"},
+            evidence={"required_env": "WOKWI_CLI_TOKEN", "checks": checks},
+        )
+    if not wokwi_token_is_valid(settings.wokwi_cli_token):
+        return ToolResult(
+            status="unavailable",
+            summary="WOKWI_CLI_TOKEN is present but does not match the documented Wokwi CI token format.",
+            evidence={"required_format": "wok_ prefix, 44 characters", "checks": checks},
         )
     executable = shutil.which(settings.wokwi_cli_cmd)
     if not executable:
         return ToolResult(
             status="unavailable",
             summary="Wokwi token exists, but wokwi-cli is not installed in the worker.",
-            evidence={"command": settings.wokwi_cli_cmd},
+            evidence={"command": settings.wokwi_cli_cmd, "checks": checks},
         )
-    scenario_paths = sorted(simulation_dir.glob("*.scenario.yaml"))
-    if len(scenario_paths) != 1:
-        return ToolResult(status="failed", summary="Wokwi project must contain exactly one automation scenario.")
-    scenario = scenario_paths[0]
     environment = {**os.environ, "WOKWI_CLI_TOKEN": settings.wokwi_cli_token.strip()}
     lint = subprocess.run(
         [executable, "lint"], cwd=simulation_dir, env=environment, capture_output=True, text=True, timeout=120, check=False,
     )
     lint_output = redact_text((lint.stdout + "\n" + lint.stderr)[-16000:], settings)
     serial_log = simulation_dir / "serial.log"
-    scenario_text = scenario.read_text(encoding="utf-8")
     command = [executable, ".", "--scenario", scenario.name, "--serial-log-file", serial_log.name]
     if "COUP_TEST_PASS" in scenario_text:
         command.extend(["--expect-text", "COUP_TEST_PASS"])
@@ -179,11 +203,6 @@ def run_wokwi(settings: Settings, simulation_dir: Path, firmware_passed: bool) -
     completed = subprocess.run(command, cwd=simulation_dir, env=environment, capture_output=True, text=True, timeout=120, check=False)
     output = redact_text((completed.stdout + "\n" + completed.stderr)[-16000:], settings)
     serial_output = redact_text(serial_log.read_text(encoding="utf-8") if serial_log.exists() else completed.stdout, settings)
-    checks = ["boot", "OLED initialization", "sensor initialization", "temperature read"]
-    if "CHECK:MOTION_READ:PASS" in scenario_text:
-        checks.extend(["motion sensor initialization", "motion read"])
-    if "TEMP_NORMAL" in scenario_text:
-        checks = ["temperature_normal", "temperature_alert", "LED off below 30C", "LED on above 30C"]
     expected_serial = [line.split("'", 2)[1] for line in scenario_text.splitlines() if "wait-serial:" in line and "'" in line]
     missing_markers = [marker for marker in expected_serial if marker not in serial_output]
     passed = lint.returncode == 0 and completed.returncode == 0 and not missing_markers

@@ -1,8 +1,8 @@
 # All Things Agentic — demo checklist
 
-## 90-second story
+## Under-four-minute story
 
-1. In Codex/Claude/Gemini, ask for the desk environmental monitor.
+1. In Codex/Claude/Gemini, ask for the ESP32 temperature alarm.
 2. Show the agent calling `prototype_start` and immediately receiving a Build Room URL.
 3. Open the URL while the Cloud Run Job is still working.
 4. Point out Firestore events and the canvas evolving from idea to electronics to enclosure.
@@ -10,8 +10,9 @@
 6. Show the actual `pio run` event and resulting `firmware.bin`.
 7. For the repair beat, set `INJECT_COMPILE_FAILURE_ONCE=true`: compile fails, EngineeringAgent gets
    compiler evidence, a constrained patch is applied, and PlatformIO recompiles.
-8. Show Wokwi scenario results when `WOKWI_CLI_TOKEN` is configured; otherwise emphasize the visible
-   `UNAVAILABLE` state rather than claiming success.
+8. Show Wokwi changing the DHT22 from 25°C to 35°C, asserting GPIO 10 low/high, and matching
+   `COUP_READY`, `TEMP_NORMAL`, `TEMP_ALERT`, and `COUP_TEST_PASS`. If the CI token is invalid,
+   show the visible unavailable/failed state instead of claiming success.
 9. Rotate the generated enclosure in the Product Canvas and download both STL files.
 10. End on the report: digital prototype verified; assembly, EMI/EMC, and thermals not verified.
 
@@ -44,7 +45,7 @@ python -m hardware_build.smoke
 - [ ] Vercel contains only public `NEXT_PUBLIC_*` configuration.
 - [ ] GitHub Actions authenticated through OIDC/WIF; no Google JSON key exists in GitHub Secrets.
 - [ ] Firestore rules deployed.
-- [ ] Pinned Wokwi Secret Manager version added if simulation will be demonstrated.
+- [ ] A Wokwi **CI** token (`wok_` prefix, 44 characters) is stored in Secret Manager and a real scenario has passed.
 - [ ] Demo build opened once to warm PlatformIO/tool image caches.
 - [ ] Browser tested at desktop and narrow widths.
 

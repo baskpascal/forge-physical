@@ -49,11 +49,31 @@ def test_wokwi_result_reports_motion_checks(tmp_path: Path, monkeypatch):
         ),
     )
 
-    result = run_wokwi(Settings(wokwi_cli_token="test-token"), simulation_dir, True)
+    result = run_wokwi(Settings(wokwi_cli_token="wok_" + "x" * 40), simulation_dir, True)
 
     assert result.status == "passed"
     assert "motion sensor initialization" in result.evidence["checks"]
     assert "motion read" in result.evidence["checks"]
+
+
+def test_wokwi_rejects_non_ci_token_without_spawning_cli(tmp_path: Path, monkeypatch):
+    invoked = False
+    (tmp_path / "test.scenario.yaml").write_text(
+        "name: test\nversion: 1\nsteps:\n  - wait-serial: 'READY'\n",
+        encoding="utf-8",
+    )
+
+    def fail_if_invoked(*_args, **_kwargs):
+        nonlocal invoked
+        invoked = True
+        raise AssertionError("invalid credentials must fail before spawning wokwi-cli")
+
+    monkeypatch.setattr("hardware_build.simulation.subprocess.run", fail_if_invoked)
+    result = run_wokwi(Settings(wokwi_cli_token="legacy-token"), tmp_path, True)
+
+    assert result.status == "unavailable"
+    assert "documented Wokwi CI token format" in result.summary
+    assert invoked is False
 
 
 def test_temperature_alarm_wokwi_project_has_real_sensor_and_led_assertions(tmp_path: Path):

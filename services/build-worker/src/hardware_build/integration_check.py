@@ -14,7 +14,7 @@ from google.cloud import firestore, storage
 
 from .security import redact_text
 from .settings import Settings, get_settings
-from .simulation import run_wokwi
+from .simulation import run_wokwi, wokwi_token_is_valid
 
 
 def _result(status: str, detail: str) -> dict[str, object]:
@@ -120,6 +120,11 @@ def check_wokwi(settings: Settings, project: Path | None, verified_build_id: str
         return _result(
             "unavailable_due_to_missing_credentials",
             "WOKWI_CLI_TOKEN was not injected from Secret Manager.",
+        )
+    if not wokwi_token_is_valid(settings.wokwi_cli_token):
+        return _result(
+            "unavailable_due_to_invalid_credentials",
+            "WOKWI_CLI_TOKEN is present but does not match the documented Wokwi CI token format.",
         )
     if not shutil.which(settings.wokwi_cli_cmd):
         return _result("unavailable_due_to_missing_configuration", "wokwi-cli is not installed.")

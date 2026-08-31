@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const defaultPrompt =
-  "Build a small desk environmental monitor with a screen, rotary knob and temperature sensor. Use an ESP32 and USB power.";
+  "Create an ESP32 temperature alarm. Use a temperature sensor. Turn the warning LED on when temperature is above 30°C. The design must be testable automatically in Wokwi.";
 
 export default function Home() {
   const router = useRouter();
@@ -50,7 +50,7 @@ export default function Home() {
             <span>ESP32-S3 · Verified component catalog</span>
             <button disabled={busy}>{busy ? "Starting build…" : "Start hardware build"}<b>↗</b></button>
           </div>
-          {error && <p className="form-error">{error}. Is the build service running on port 8080?</p>}
+          {error && <p className="form-error">{error}. The build service may be temporarily unavailable.</p>}
         </form>
       </section>
       <div className="landing-flow" aria-label="Product flow">

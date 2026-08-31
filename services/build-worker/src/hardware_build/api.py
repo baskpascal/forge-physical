@@ -22,6 +22,7 @@ from .models import StartBuildRequest, UpdateBuildRequest
 from .orchestrator import run_build
 from .service import artifacts_payload, create_build, status_payload, update_build
 from .settings import get_settings
+from .simulation import wokwi_token_is_valid
 from .storage import BuildNotFoundError, get_store
 
 
@@ -60,7 +61,15 @@ def health() -> dict:
             "vertex_ai": {"status": "configured" if settings.gemini_configured else "implemented"},
             "firestore": {"status": "configured" if settings.build_store == "firestore" and settings.google_cloud_project else "implemented"},
             "cloud_storage": {"status": "configured" if settings.artifact_bucket else "implemented"},
-            "wokwi": {"status": "configured" if settings.wokwi_cli_token else "implemented"},
+            "wokwi": {
+                "status": (
+                    "configured"
+                    if wokwi_token_is_valid(settings.wokwi_cli_token)
+                    else "invalid_credentials"
+                    if settings.wokwi_cli_token
+                    else "implemented"
+                )
+            },
         },
         "note": "Configuration is not runtime verification. Run python -m hardware_build.integration_check.",
     }

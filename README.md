@@ -24,22 +24,25 @@ Build Room comes from backend evidence. Missing credentials and physical tests r
 
 Ask your coding agent:
 
-> Build a small desk environmental monitor with a screen, rotary knob and temperature sensor. Use an ESP32 and USB power.
+> Create an ESP32 temperature alarm. Use a temperature sensor. Turn the warning LED on when temperature is above 30°C. The design must be testable automatically in Wokwi.
 
-The verified vertical slice selects an ESP32-S3 DevKitC-1, SSD1306 OLED, DHT22, and KY-040, then:
+The production golden path selects an ESP32-S3 DevKitC-1, DHT22, LED, and current-limiting resistor, then:
 
 1. creates a constrained `ProductSpec`;
 2. generates the Hardware IR and runs nine deterministic electrical checks;
 3. generates Arduino firmware and compiles it with PlatformIO;
 4. gives compiler evidence to the ADK EngineeringAgent and retries a bounded repair loop;
-5. generates and runs a Wokwi automation scenario when a token exists;
-6. exports parametric base/lid STL files with display, knob, and USB openings;
+5. generates a Wokwi scenario that drives 25°C then 35°C and asserts the LED state;
+6. exports parametric base/lid STL files;
 7. emits a verification report that distinguishes digital evidence from physical verification.
 
-The current local smoke test produces a real `firmware.bin`, real STL files, 16+ structured events,
-and a completed Build Room. With no Wokwi token, simulation is honestly shown as unavailable.
+The production worker produces a real `firmware.bin`, real STL files, and structured Firestore
+events. An absent or malformed Wokwi CI token remains honestly unavailable and cannot produce a
+completed hardware-validation claim.
 
 ## Architecture
+
+![Forge Physical production architecture](docs/architecture.png)
 
 | Surface | Implementation | Responsibility |
 | --- | --- | --- |
@@ -170,10 +173,20 @@ Vertex AI's multi-region `us` endpoint with `gemini-3.5-flash`.
 | Firestore | Worker service-account write/read/delete probe verified. |
 | Cloud Storage | Worker service-account upload/download/delete probe verified. |
 | Vertex AI | Cloud Run Job called Gemini 3.5 Flash in `us`: `runtime_verified` (1,179 ms). |
-| Wokwi | Token and CLI are configured, but no Wokwi project scenario was supplied; not claimed as runtime-verified. |
+| Wokwi | Golden-path project, lint, scenario, and validation are implemented. The current Secret Manager value is rejected by Wokwi as unauthorized and is not claimed as runtime-verified. |
 
 `python -m hardware_build.integration_check` is run in the Cloud Run Job and performs live probes;
 configuration alone is never reported as runtime verification.
+
+## Hackathon evidence
+
+- Hosted Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>
+- [Submission evidence index](docs/submission-evidence.md)
+- [Architecture diagram](docs/architecture.png)
+- [Under-four-minute demo script](docs/demo-script.md)
+- [Devpost submission copy](docs/devpost-submission.md)
+- [Build article draft](docs/build-article.md)
+- [Social launch copy](docs/social-post.md)
 
 ## Keyless Google Cloud CI/CD
 

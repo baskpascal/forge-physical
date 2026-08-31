@@ -2,7 +2,8 @@ project_id = "supple-voyage-507119-v0" # Project display name: coup
 region     = "us-central1"
 
 # Set this after the bootstrap apply creates Artifact Registry and the image is pushed.
-image = "us-central1-docker.pkg.dev/coup/forge-physical/backend:bootstrap"
+image     = "us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/backend:bootstrap"
+web_image = "us-central1-docker.pkg.dev/supple-voyage-507119-v0/forge-physical/web:bootstrap"
 
 # Optional: enables GitHub Actions OIDC federation.
 # github_repository = "OWNER/forge-physical"

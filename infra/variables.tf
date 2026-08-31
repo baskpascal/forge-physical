@@ -14,10 +14,15 @@ variable "image" {
   type        = string
 }
 
-variable "public_build_url" {
-  description = "Public Next.js Build Room URL; use localhost until the frontend is deployed."
+variable "web_image" {
+  description = "Existing Build Room image to run in Cloud Run."
   type        = string
-  default     = "http://localhost:3000"
+}
+
+variable "public_build_url" {
+  description = "Public Next.js Build Room URL used for API links and CORS."
+  type        = string
+  default     = "https://forge-web-rldj6ghw7q-uc.a.run.app"
 }
 
 variable "github_repository" {

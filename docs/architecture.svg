@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07111f"/><stop offset="1" stop-color="#111c31"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-opacity=".3"/></filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#7dd3fc"/></marker>
+    <style>
+      .title{font:700 42px Arial;fill:#f8fafc}.sub{font:20px Arial;fill:#94a3b8}.box{fill:#13243d;stroke:#38bdf8;stroke-width:2;rx:16;filter:url(#shadow)}
+      .tool{fill:#1e293b;stroke:#a78bfa}.evidence{fill:#11332f;stroke:#34d399}.boundary{fill:#2b1d37;stroke:#f472b6}
+      .h{font:700 22px Arial;fill:#f8fafc}.p{font:16px Arial;fill:#cbd5e1}.small{font:14px Arial;fill:#94a3b8}
+      .line{stroke:#7dd3fc;stroke-width:3;fill:none;marker-end:url(#arrow)}.dash{stroke-dasharray:8 8}
+    </style>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#bg)"/>
+  <text x="70" y="70" class="title">Coup / Forge — Evidence-first hardware generation</text>
+  <text x="70" y="105" class="sub">Production architecture · us-central1 infrastructure · Vertex AI inference in us</text>
+
+  <rect x="60" y="165" width="230" height="120" class="box"/><text x="85" y="205" class="h">User / coding agent</text><text x="85" y="238" class="p">Product request</text><text x="85" y="263" class="small">Streamable HTTP MCP</text>
+  <rect x="355" y="165" width="260" height="120" class="box"/><text x="380" y="205" class="h">Cloud Run API</text><text x="380" y="238" class="p">FastAPI + prototype_start</text><text x="380" y="263" class="small">Returns build ID immediately</text>
+  <rect x="685" y="165" width="260" height="120" class="evidence" rx="16"/><text x="710" y="205" class="h">Firestore</text><text x="710" y="238" class="p">Build + immutable versions</text><text x="710" y="263" class="small">State and ordered event stream</text>
+  <rect x="1015" y="165" width="290" height="120" class="boundary" rx="16"/><text x="1040" y="205" class="h">Cloud Run Job</text><text x="1040" y="238" class="p">forge-worker async boundary</text><text x="1040" y="263" class="small">Dedicated service account</text>
+  <rect x="1370" y="165" width="170" height="120" class="box"/><text x="1392" y="205" class="h">Build Room</text><text x="1392" y="238" class="p">Live progress</text><text x="1392" y="263" class="small">Judge surface</text>
+  <path d="M290 225H355" class="line"/><path d="M615 225H685" class="line"/><path d="M945 225H1015" class="line"/><path d="M1305 225H1370" class="line dash"/>
+
+  <rect x="80" y="385" width="270" height="130" class="tool" rx="16"/><text x="105" y="425" class="h">Google ADK</text><text x="105" y="458" class="p">ProductPlanner agent</text><text x="105" y="485" class="small">Gemini 3.5 Flash · Vertex AI</text>
+  <rect x="410" y="385" width="250" height="130" class="tool" rx="16"/><text x="435" y="425" class="h">Hardware IR</text><text x="435" y="458" class="p">Catalog + connections</text><text x="435" y="485" class="small">Deterministic validators</text>
+  <rect x="720" y="385" width="250" height="130" class="tool" rx="16"/><text x="745" y="425" class="h">PlatformIO</text><text x="745" y="458" class="p">Real ESP32 compile</text><text x="745" y="485" class="small">firmware.bin + firmware.elf</text>
+  <rect x="1030" y="385" width="250" height="130" class="tool" rx="16"/><text x="1055" y="425" class="h">Wokwi CI</text><text x="1055" y="458" class="p">Lint + sensor scenario</text><text x="1055" y="485" class="small">Serial + GPIO assertions</text>
+  <rect x="1340" y="385" width="200" height="130" class="tool" rx="16"/><text x="1365" y="425" class="h">Enclosure</text><text x="1365" y="458" class="p">Parametric STL</text><text x="1365" y="485" class="small">Base + lid</text>
+  <path d="M1158 285V335H215V385" class="line"/><path d="M350 450H410" class="line"/><path d="M660 450H720" class="line"/><path d="M970 450H1030" class="line"/><path d="M1280 450H1340" class="line"/>
+
+  <rect x="80" y="620" width="370" height="140" class="evidence" rx="16"/><text x="105" y="660" class="h">Runtime evidence</text><text x="105" y="695" class="p">Compile exit + Wokwi lint/scenario</text><text x="105" y="723" class="p">Serial markers + GPIO behavior</text><text x="105" y="748" class="small">Failure never becomes a green build</text>
+  <rect x="520" y="620" width="340" height="140" class="evidence" rx="16"/><text x="545" y="660" class="h">Cloud Storage</text><text x="545" y="695" class="p">Firmware, diagram, scenario</text><text x="545" y="723" class="p">serial.log, result JSON, STL</text><text x="545" y="748" class="small">Per-build artifact prefix</text>
+  <rect x="930" y="620" width="300" height="140" class="boundary" rx="16"/><text x="955" y="660" class="h">Security boundary</text><text x="955" y="695" class="p">IAM + WIF keyless deploy</text><text x="955" y="723" class="p">Secret Manager → worker</text><text x="955" y="748" class="small">No service-account JSON</text>
+  <rect x="1300" y="620" width="240" height="140" class="box"/><text x="1325" y="660" class="h">Honest limits</text><text x="1325" y="695" class="p">Assembly: not verified</text><text x="1325" y="723" class="p">EMI/EMC: not verified</text><text x="1325" y="748" class="p">Thermals: not verified</text>
+  <path d="M1155 515V565H265V620" class="line"/><path d="M450 690H520" class="line"/><path d="M860 690H930" class="line"/>
+
+  <path d="M845 515V555H600V515" stroke="#f59e0b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <text x="655" y="548" class="small" fill="#fbbf24">bounded compiler repair loop via EngineeringAgent</text>
+  <path d="M690 620V565H815V285" class="line dash"/><text x="700" y="590" class="small">artifact refs + result state</text>
+  <text x="70" y="900" class="sub">Legend: green = runtime evidence/state · purple = execution/security boundary · blue = product/tool flow</text>
+  <text x="70" y="940" class="small">Artifact generated for the All Things Agentic Hackathon submission. Physical safety categories remain explicitly unverified.</text>
+</svg>
