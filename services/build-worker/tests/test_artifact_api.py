@@ -1,3 +1,5 @@
+import io
+import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -11,11 +13,11 @@ def _settings(tmp_path: Path, *, bucket: str | None = None) -> Settings:
     return Settings(build_artifact_dir=tmp_path / "artifacts", artifact_bucket=bucket)
 
 
-def _allow_artifact(monkeypatch, artifact_path: str) -> None:
+def _allow_artifact(monkeypatch, artifact_path: str, *, build_id: str = "build-1") -> None:
     build = Build(
-        id="build-1",
+        id=build_id,
         prompt="Build a desk monitor",
-        artifact_paths={"fixture": f"build-1/{artifact_path}"},
+        artifact_paths={"fixture": f"{build_id}/{artifact_path}"},
     )
 
     class Store:
@@ -24,6 +26,44 @@ def _allow_artifact(monkeypatch, artifact_path: str) -> None:
             return build
 
     monkeypatch.setattr(api, "get_store", Store)
+
+
+def test_artifact_archive_includes_only_recorded_public_files(tmp_path: Path, monkeypatch):
+    settings = _settings(tmp_path)
+    recorded = settings.build_artifact_dir / "build-1" / "hardware/enclosure/base.stl"
+    unrecorded = settings.build_artifact_dir / "build-1" / "hardware/enclosure/lid.stl"
+    recorded.parent.mkdir(parents=True)
+    recorded.write_bytes(b"recorded")
+    unrecorded.write_bytes(b"unrecorded")
+    monkeypatch.setattr(api, "get_settings", lambda: settings)
+    _allow_artifact(monkeypatch, "hardware/enclosure/base.stl")
+
+    response = TestClient(api.app).get("/api/builds/build-1/artifacts.zip")
+
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert archive.namelist() == ["hardware/enclosure/base.stl"]
+        assert archive.read("hardware/enclosure/base.stl") == b"recorded"
+
+
+def test_artifact_archive_rejects_invalid_build_id(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(api, "get_settings", lambda: _settings(tmp_path))
+
+    response = TestClient(api.app).get("/api/builds/bad$id/artifacts.zip")
+
+    assert response.status_code == 404
+
+
+def test_artifact_archive_rejects_recorded_but_unavailable_files(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setattr(api, "get_settings", lambda: _settings(tmp_path))
+    _allow_artifact(monkeypatch, "hardware/enclosure/base.stl")
+
+    response = TestClient(api.app).get("/api/builds/build-1/artifacts.zip")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "No artifacts are available yet"
 
 
 def test_individual_artifact_serves_local_stl(tmp_path: Path, monkeypatch):

@@ -28,7 +28,7 @@ class BuildOrchestrator:
 
     def run(self, build_id: str) -> None:
         build = self.store.get(build_id)
-        reporter = BuildReporter(self.store, build)
+        reporter = BuildReporter(self.store, build, self.settings)
         workspace = ArtifactWorkspace(self.settings, build_id)
         try:
             reporter.emit("plan.started", BuildStage.IDEA, "running", "Translating product intent into an engineering brief…", progress=5, build_status=BuildStatus.PLANNING)

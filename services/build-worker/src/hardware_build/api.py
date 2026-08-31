@@ -34,6 +34,7 @@ async def lifespan(_: FastAPI):
 
 settings = get_settings()
 app = FastAPI(title="Forge Physical API", version="0.1.0", lifespan=lifespan)
+_BUILD_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -108,21 +109,43 @@ def artifacts(build_id: str) -> dict:
 
 @app.get("/api/builds/{build_id}/artifacts.zip")
 def artifact_archive(build_id: str) -> StreamingResponse:
+    if not _BUILD_ID_PATTERN.fullmatch(build_id):
+        raise HTTPException(404, "Artifacts not found")
+    try:
+        build = get_store().get(build_id)
+    except BuildNotFoundError as exc:
+        raise HTTPException(404, "Build not found") from exc
+    allowed_paths = build_public_artifact_paths(build)
+    if not allowed_paths:
+        raise HTTPException(404, "No artifacts are available yet")
+
     settings = get_settings()
     root = (settings.build_artifact_dir / build_id).resolve()
     buffer = io.BytesIO()
+    archived = 0
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         if root.exists():
             for path in artifact_files(root):
-                archive.write(path, path.relative_to(root))
+                relative = path.relative_to(root).as_posix()
+                if relative in allowed_paths:
+                    archive.write(path, relative)
+                    archived += 1
         elif settings.artifact_bucket:
             blobs = list(storage.Client().list_blobs(settings.artifact_bucket, prefix=f"{build_id}/"))
+            blobs = [
+                blob
+                for blob in blobs
+                if blob.name.removeprefix(f"{build_id}/") in allowed_paths
+            ]
             if not blobs:
                 raise HTTPException(404, "No artifacts are available yet")
             for blob in blobs:
                 archive.writestr(blob.name.removeprefix(f"{build_id}/"), blob.download_as_bytes())
+                archived += 1
         else:
             raise HTTPException(404, "No artifacts are available yet")
+    if archived == 0:
+        raise HTTPException(404, "No artifacts are available yet")
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="forge-{build_id}.zip"'})
 
@@ -130,7 +153,7 @@ def artifact_archive(build_id: str) -> StreamingResponse:
 @app.get("/api/builds/{build_id}/artifacts/{artifact_path:path}")
 def artifact(build_id: str, artifact_path: str) -> Response:
     """Serve a single public build artifact without exposing the storage backend."""
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", build_id):
+    if not _BUILD_ID_PATTERN.fullmatch(build_id):
         raise HTTPException(404, "Artifact not found")
     canonical = public_artifact_path(artifact_path)
     if canonical is None:

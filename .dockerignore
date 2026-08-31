@@ -12,7 +12,14 @@ node_modules
 **/.next
 **/__pycache__
 .pytest_cache
+.coverage
+coverage
 .ruff_cache
 artifacts
 data
 *.log
+next-env.d.ts
+*.mov
+*.mp4
+*.wav
+manual.php
