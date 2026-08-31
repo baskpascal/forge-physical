@@ -81,6 +81,15 @@ def _json_object(text: str) -> dict:
     return json.loads(candidate)
 
 
+def _normalize_product_spec_payload(payload: dict) -> dict:
+    """Accept Gemini's descriptive power object while preserving the public ProductSpec contract."""
+    power = payload.get("power")
+    if isinstance(power, dict):
+        description = " ".join(str(value) for value in power.values()).lower()
+        payload = {**payload, "power": "battery" if "battery" in description else "usb"}
+    return payload
+
+
 @dataclass
 class PlanOutcome:
     spec: ProductSpec
@@ -98,7 +107,7 @@ async def plan_product(prompt: str, settings: Settings) -> PlanOutcome:
     try:
         runner = InMemoryRunner(agent=make_planner_agent(settings), app_name="forge_physical")
         events = await runner.run_debug(prompt, user_id="build-worker", session_id="product-plan", quiet=True)
-        spec = ProductSpec.model_validate(_json_object(_final_text(events)))
+        spec = ProductSpec.model_validate(_normalize_product_spec_payload(_json_object(_final_text(events))))
         return PlanOutcome(spec=spec, mode=f"google-adk/{settings.gemini_model}")
     except Exception as exc:
         return PlanOutcome(

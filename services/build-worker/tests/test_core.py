@@ -1,5 +1,6 @@
 import pytest
 
+from hardware_build.agent import _normalize_product_spec_payload
 from hardware_build.catalog import CATALOG
 from hardware_build.planning import (
     deterministic_hardware_ir,
@@ -13,6 +14,11 @@ from hardware_build.validators import validate_hardware
 def test_catalog_is_restricted_and_complete():
     assert set(CATALOG) == {"esp32-s3-devkit", "ssd1306-oled", "dht22", "ky-040", "push-button", "led", "mpu6050"}
     assert all(component.wokwi_part_id for component in CATALOG.values())
+
+
+def test_gemini_power_object_is_normalized_without_using_a_fixture():
+    payload = _normalize_product_spec_payload({"power": {"source": "USB 5V", "operating_voltage": "3.3V"}})
+    assert payload["power"] == "usb"
 
 
 def test_demo_hardware_ir_passes_deterministic_validation():
