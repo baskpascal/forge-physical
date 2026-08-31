@@ -145,6 +145,20 @@ Production is provisioned reproducibly from [infra/](infra/README.md) with dedic
 `forge-worker` service accounts and ADC. The Terraform configuration never stores a Wokwi token in
 state; the worker receives it only as a Secret Manager reference.
 
+## End-to-End Hardware Validation
+
+The production golden path is an ESP32 temperature alarm: a user prompt is planned with Gemini
+3.5 Flash, constrained to the supported hardware catalog, compiled by the Cloud Run worker, and
+then tested by Wokwi CI. The generated DHT22 scenario drives 25°C then 35°C, asserts the ESP32 LED
+pin is off then on, and requires firmware serial markers before the build can complete. The worker
+stores the diagram, firmware, scenario, serial log, simulation result, and verification report in
+Firestore-backed build state and Cloud Storage.
+
+To reproduce the live flow, submit the prompt through `POST /api/builds` and poll
+`GET /api/builds/{build_id}`. A successful production build reports `simulation.status: passed`
+and `validation_passed: true`; a lint, compile, scenario, pin, or serial failure ends as
+`needs_review`, never as a completed validation.
+
 ## Google Cloud Runtime Verification
 
 Production infrastructure runs in `us-central1`; Gemini inference is independently configured to

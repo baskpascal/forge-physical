@@ -114,6 +114,25 @@ def _dht22(hardware: HardwareIR, component: ComponentInstance) -> FirmwareFragme
     name = _identifier(component.ref)
     prefix = name.upper()
     pin = _pin_number(hardware, component, "SDA")
+    alarm_led = next((item for item in hardware.components if item.component_id == "led"), None)
+    alarm_declaration = ""
+    alarm_setup = ""
+    alarm_loop = ""
+    if alarm_led:
+        alarm_pin = _pin_number(hardware, alarm_led, "A")
+        alarm_declaration = f"\nconstexpr int COUP_ALARM_LED_PIN = {alarm_pin};"
+        alarm_setup = "\n  pinMode(COUP_ALARM_LED_PIN, OUTPUT);\n  digitalWrite(COUP_ALARM_LED_PIN, LOW);\n  Serial.println(\"COUP_READY\");"
+        alarm_loop = """
+  if (!isnan(telemetry.temperature_c)) {
+    if (telemetry.temperature_c > 30.0f) {
+      digitalWrite(COUP_ALARM_LED_PIN, HIGH);
+      Serial.println("TEMP_ALERT");
+      Serial.println("COUP_TEST_PASS");
+    } else {
+      digitalWrite(COUP_ALARM_LED_PIN, LOW);
+      Serial.println("TEMP_NORMAL");
+    }
+  }"""
     return FirmwareFragment(
         includes=("DHT.h",),
         libraries=(
@@ -121,15 +140,20 @@ def _dht22(hardware: HardwareIR, component: ComponentInstance) -> FirmwareFragme
             "adafruit/DHT sensor library@^1.4.6",
         ),
         declarations=f"""constexpr int {prefix}_DHT_PIN = {pin};
-DHT {name}({prefix}_DHT_PIN, DHT22);""",
+DHT {name}({prefix}_DHT_PIN, DHT22);{alarm_declaration}""",
         setup=f"""{name}.begin();
-  Serial.println("CHECK:SENSOR_INIT:PASS");""",
+  Serial.println("CHECK:SENSOR_INIT:PASS");{alarm_setup}""",
         loop=f"""telemetry.humidity_percent = {name}.readHumidity();
   telemetry.temperature_c = {name}.readTemperature();
   if (!isnan(telemetry.temperature_c) && !isnan(telemetry.humidity_percent)) {{
     Serial.println("CHECK:TEMPERATURE_READ:PASS");
-  }}""",
+  }}{alarm_loop}""",
     )
+
+
+def _led(_hardware: HardwareIR, _component: ComponentInstance) -> FirmwareFragment:
+    """The DHT22 alarm module owns the LED behavior when both are selected."""
+    return FirmwareFragment()
 
 
 def _ky040(hardware: HardwareIR, component: ComponentInstance) -> FirmwareFragment:
@@ -183,6 +207,7 @@ MODULES: dict[str, FirmwareModule] = {
     for module in (
         FirmwareModule("ssd1306-oled", 10, _ssd1306),
         FirmwareModule("dht22", 20, _dht22),
+        FirmwareModule("led", 25, _led),
         FirmwareModule("ky-040", 30, _ky040),
         FirmwareModule("mpu6050", 40, _mpu6050),
     )

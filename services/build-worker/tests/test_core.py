@@ -23,6 +23,17 @@ def test_demo_hardware_ir_passes_deterministic_validation():
     assert len(hardware.components) == 3
 
 
+def test_temperature_alarm_selects_the_minimal_wokwi_verified_hardware():
+    spec = deterministic_product_spec(
+        "Create an ESP32 temperature alarm that turns on an LED when temperature exceeds 30C"
+    )
+    hardware = deterministic_hardware_ir(spec)
+
+    assert "temperature alarm" in spec.features
+    assert [component.component_id for component in hardware.components] == ["dht22", "led"]
+    assert validate_hardware(hardware).passed
+
+
 def test_gpio_conflict_is_rejected():
     hardware = deterministic_hardware_ir(deterministic_product_spec("Build a desk monitor with screen and knob"))
     hardware.connections[2].from_.pin = "GPIO8"

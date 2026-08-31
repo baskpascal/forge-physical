@@ -10,7 +10,7 @@ from .enclosure import generate_enclosure
 from .events import BuildReporter
 from .firmware import compile_firmware, deterministic_repair, generate_firmware
 from .models import BuildStage, BuildStatus, VerificationReport
-from .planning import deterministic_hardware_ir
+from .planning import deterministic_hardware_ir, product_has_temperature_alarm
 from .security import redact_text
 from .settings import Settings, get_settings
 from .simulation import generate_wokwi, run_wokwi
@@ -34,6 +34,8 @@ class BuildOrchestrator:
             outcome = asyncio.run(plan_product(build.prompt, self.settings))
             build.product_spec = outcome.spec
             build.agent_mode = outcome.mode
+            if product_has_temperature_alarm(outcome.spec, build.prompt) and "temperature alarm" not in outcome.spec.features:
+                outcome.spec.features.append("temperature alarm")
             if outcome.note:
                 reporter.emit("agent.fallback", BuildStage.IDEA, "unavailable", outcome.note, progress=10, metadata={"mode": outcome.mode})
             if not outcome.spec.supported:
@@ -42,7 +44,7 @@ class BuildOrchestrator:
                 return
             reporter.emit("plan.completed", BuildStage.IDEA, "passed", f"Product brief ready: {outcome.spec.name}", progress=15, build_status=BuildStatus.BUILDING, metadata={"agent_mode": outcome.mode})
 
-            build.hardware = deterministic_hardware_ir(outcome.spec)
+            build.hardware = deterministic_hardware_ir(outcome.spec, build.prompt)
             component_ids = [component.component_id for component in build.hardware.components]
             reporter.emit("component.selected", BuildStage.COMPONENTS, "passed", "Selected supported components from the verified catalog.", progress=28, metadata={"component_ids": component_ids})
             reporter.emit("electronics.generated", BuildStage.ELECTRONICS, "running", "Hardware IR generated; checking every rail and signal…", progress=36)
@@ -103,6 +105,10 @@ class BuildOrchestrator:
                 build.artifact_paths[f"wokwi_{key}"] = workspace.relative(wokwi_files[key])
             reporter.emit("simulation.started", BuildStage.SIMULATION, "running", "Prepared a real Wokwi circuit and automated sensor scenario.", progress=76)
             build.simulation = run_wokwi(self.settings, simulation_dir, build.firmware.status == "passed")
+            for name, artifact_key in (("serial.log", "wokwi_serial_log"), ("simulation-result.json", "wokwi_result")):
+                path = simulation_dir / name
+                if path.exists():
+                    build.artifact_paths[artifact_key] = workspace.relative(path)
             reporter.emit(f"simulation.{build.simulation.status}", BuildStage.SIMULATION, build.simulation.status, build.simulation.summary, progress=82, metadata=build.simulation.evidence)
 
             reporter.emit("enclosure.started", BuildStage.ENCLOSURE, "running", "Generating a parametric enclosure around board, display, knob and USB clearances…", progress=86, build_status=BuildStatus.BUILDING)
@@ -117,20 +123,7 @@ class BuildOrchestrator:
                 firmware_compilation=build.firmware.status,
                 simulation=build.simulation.status,
                 enclosure_generation=build.enclosure.status,
-                scenario_checks=[
-                    "boot",
-                    "OLED initialization",
-                    "sensor initialization",
-                    "temperature read",
-                    *(
-                        ["motion sensor initialization", "motion read"]
-                        if any(
-                            component.component_id == "mpu6050"
-                            for component in build.hardware.components
-                        )
-                        else []
-                    ),
-                ],
+                scenario_checks=list(build.simulation.evidence.get("checks", [])),
             )
             verification_path = workspace.write_json("verification.json", build.verification)
             build.artifact_paths["verification"] = workspace.relative(verification_path)
@@ -148,7 +141,7 @@ class BuildOrchestrator:
             digital_evidence_passed = (
                 build.firmware.status == "passed"
                 and build.enclosure.status == "passed"
-                and build.simulation.status != "failed"
+                and build.simulation.status == "passed"
             )
             final_status = BuildStatus.COMPLETED if digital_evidence_passed else BuildStatus.NEEDS_REVIEW
             final_event = "build.completed" if final_status == BuildStatus.COMPLETED else "build.needs_review"

@@ -42,7 +42,11 @@ def test_wokwi_result_reports_motion_checks(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("hardware_build.simulation.shutil.which", lambda _command: "wokwi-cli")
     monkeypatch.setattr(
         "hardware_build.simulation.subprocess.run",
-        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout="ok", stderr=""),
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="CHECK:BOOT:PASS\nCHECK:OLED_INIT:PASS\nCHECK:SENSOR_INIT:PASS\nCHECK:TEMPERATURE_READ:PASS\nCHECK:MOTION_INIT:PASS\nCHECK:MOTION_READ:PASS",
+            stderr="",
+        ),
     )
 
     result = run_wokwi(Settings(wokwi_cli_token="test-token"), simulation_dir, True)
@@ -50,3 +54,18 @@ def test_wokwi_result_reports_motion_checks(tmp_path: Path, monkeypatch):
     assert result.status == "passed"
     assert "motion sensor initialization" in result.evidence["checks"]
     assert "motion read" in result.evidence["checks"]
+
+
+def test_temperature_alarm_wokwi_project_has_real_sensor_and_led_assertions(tmp_path: Path):
+    hardware = deterministic_hardware_ir(
+        deterministic_product_spec("Create an ESP32 temperature alarm with an LED above 30C")
+    )
+    files = generate_wokwi(hardware, tmp_path / "firmware", tmp_path / "simulation")
+
+    diagram = json.loads(files["diagram"].read_text(encoding="utf-8"))
+    assert {part["type"] for part in diagram["parts"]} >= {"wokwi-dht22", "wokwi-led", "wokwi-resistor"}
+    scenario = files["scenario"].read_text(encoding="utf-8")
+    assert "control: temperature" in scenario
+    assert "value: 25" in scenario and "value: 35" in scenario
+    assert "expected: 0" in scenario and "expected: 1" in scenario
+    assert "TEMP_NORMAL" in scenario and "TEMP_ALERT" in scenario

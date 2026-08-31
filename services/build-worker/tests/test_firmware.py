@@ -24,12 +24,14 @@ def _hardware(component_ids: list[str]) -> HardwareIR:
         "dht22": {"SDA": "GPIO15"},
         "ky-040": {"CLK": "GPIO4", "DT": "GPIO5", "SW": "GPIO6"},
         "mpu6050": {"SDA": "GPIO11", "SCL": "GPIO12"},
+        "led": {"A": "GPIO10"},
     }
     refs = {
         "ssd1306-oled": "display",
         "dht22": "sensor",
         "ky-040": "encoder",
         "mpu6050": "imu",
+        "led": "warning_led",
     }
     components = [
         ComponentInstance(ref=refs[component_id], component_id=component_id, label=component_id)
@@ -58,6 +60,19 @@ def test_firmware_generation_and_known_repair(tmp_path: Path):
     files["source"].write_text(source, encoding="utf-8")
     assert deterministic_repair(files["source"], "no member named begin_broken")
     assert "begin_broken" not in files["source"].read_text(encoding="utf-8")
+
+
+def test_temperature_alarm_firmware_emits_observable_wokwi_markers(tmp_path: Path):
+    hardware = deterministic_hardware_ir(
+        deterministic_product_spec("Create an ESP32 temperature alarm with an LED above 30C")
+    )
+    source = generate_firmware(hardware, tmp_path)["source"].read_text(encoding="utf-8")
+
+    assert "COUP_ALARM_LED_PIN = 10" in source
+    assert "COUP_READY" in source
+    assert "TEMP_NORMAL" in source
+    assert "TEMP_ALERT" in source
+    assert "COUP_TEST_PASS" in source
 
 
 @pytest.mark.parametrize(

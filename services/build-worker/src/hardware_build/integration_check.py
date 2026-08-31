@@ -115,7 +115,7 @@ def check_storage(settings: Settings, adc_error: dict | None) -> dict:
         return _result("runtime_failed", redact_text(f"{type(exc).__name__}: {exc}", settings))
 
 
-def check_wokwi(settings: Settings, project: Path | None) -> dict:
+def check_wokwi(settings: Settings, project: Path | None, verified_build_id: str | None = None) -> dict:
     if not settings.wokwi_cli_token:
         return _result(
             "unavailable_due_to_missing_credentials",
@@ -123,6 +123,30 @@ def check_wokwi(settings: Settings, project: Path | None) -> dict:
         )
     if not shutil.which(settings.wokwi_cli_cmd):
         return _result("unavailable_due_to_missing_configuration", "wokwi-cli is not installed.")
+    if verified_build_id:
+        if not settings.google_cloud_project:
+            return _result("unavailable_due_to_missing_configuration", "GOOGLE_CLOUD_PROJECT is unset.")
+        try:
+            snapshot = firestore.Client(project=settings.google_cloud_project).collection("builds").document(verified_build_id).get()
+            build = snapshot.to_dict() if snapshot.exists else None
+            simulation = build.get("simulation", {}) if build else {}
+            evidence = simulation.get("evidence", {})
+            required = {"COUP_READY", "TEMP_NORMAL", "TEMP_ALERT", "COUP_TEST_PASS"}
+            observed = set(evidence.get("expected_serial", []))
+            if (
+                build
+                and build.get("status") == "completed"
+                and simulation.get("status") == "passed"
+                and evidence.get("lint_exit_code") == 0
+                and evidence.get("validation_passed") is True
+                and required <= observed
+            ):
+                result = _result("runtime_verified", "Wokwi CLI lint and temperature-alarm scenario were verified in a production worker build.")
+                result.update(build_id=verified_build_id, checks=evidence.get("checks", []))
+                return result
+            return _result("runtime_failed", "The referenced build lacks complete Wokwi lint, scenario, and behavioral-validation evidence.")
+        except Exception as exc:
+            return _result("runtime_failed", redact_text(f"{type(exc).__name__}: {exc}", settings))
     if project is None:
         return _result(
             "configured",
@@ -134,21 +158,22 @@ def check_wokwi(settings: Settings, project: Path | None) -> dict:
     return _result("runtime_failed", redact_text(result.summary, settings))
 
 
-def run_checks(settings: Settings, wokwi_project: Path | None = None) -> dict:
+def run_checks(settings: Settings, wokwi_project: Path | None = None, verified_build_id: str | None = None) -> dict:
     _, adc_error = _adc(settings)
     return {
         "vertex_ai": check_vertex(settings, adc_error),
         "firestore": check_firestore(settings, adc_error),
         "cloud_storage": check_storage(settings, adc_error),
-        "wokwi": check_wokwi(settings, wokwi_project),
+        "wokwi": check_wokwi(settings, wokwi_project, verified_build_id),
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run real cloud integration probes.")
     parser.add_argument("--wokwi-project", type=Path)
+    parser.add_argument("--verified-build-id")
     args = parser.parse_args()
-    print(json.dumps(run_checks(get_settings(), args.wokwi_project), indent=2))
+    print(json.dumps(run_checks(get_settings(), args.wokwi_project, args.verified_build_id), indent=2))
 
 
 if __name__ == "__main__":

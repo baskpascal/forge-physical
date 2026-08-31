@@ -19,6 +19,14 @@ def test_build_state_machine_completes_with_real_tool_contracts(tmp_path: Path, 
         return ToolResult(status="passed", summary="compiled", evidence={"exit_code": 0, "firmware_bin": str(binary)})
 
     monkeypatch.setattr("hardware_build.orchestrator.compile_firmware", compiled)
+    monkeypatch.setattr(
+        "hardware_build.orchestrator.run_wokwi",
+        lambda *_args, **_kwargs: ToolResult(
+            status="passed",
+            summary="validated",
+            evidence={"checks": ["scenario validated"]},
+        ),
+    )
     BuildOrchestrator(store, settings).run(response.build_id)
     build = store.get(response.build_id)
     event_types = [event.type for event in store.events(response.build_id)]

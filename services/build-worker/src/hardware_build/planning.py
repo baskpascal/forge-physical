@@ -61,6 +61,16 @@ def product_has_motion_sensing(spec: ProductSpec | None, prompt: str) -> bool:
     return any(term in lowered for term in MOTION_UPDATE_TERMS)
 
 
+def product_has_temperature_alarm(spec: ProductSpec | None, prompt: str) -> bool:
+    """Recognize the one Wokwi-verified alarm path without trusting model prose."""
+    if spec and "temperature alarm" in spec.features:
+        return True
+    lowered = " ".join(prompt.lower().split())
+    return "temperature" in lowered and any(
+        term in lowered for term in ("alarm", "warning led", "warning light", "threshold")
+    )
+
+
 def deterministic_product_spec(prompt: str) -> ProductSpec:
     violation = scope_violation(prompt)
     if violation:
@@ -71,6 +81,8 @@ def deterministic_product_spec(prompt: str) -> ProductSpec:
         )
     lowered = prompt.lower()
     features = ["temperature and humidity sensing"]
+    if product_has_temperature_alarm(None, prompt):
+        features.append("temperature alarm")
     if any(word in lowered for word in ("screen", "display", "oled")):
         features.append("OLED status display")
     if any(word in lowered for word in ("rotary", "knob", "encoder")):
@@ -87,7 +99,28 @@ def deterministic_product_spec(prompt: str) -> ProductSpec:
     )
 
 
-def deterministic_hardware_ir(spec: ProductSpec) -> HardwareIR:
+def deterministic_hardware_ir(spec: ProductSpec, prompt: str | None = None) -> HardwareIR:
+    if product_has_temperature_alarm(spec, prompt or spec.intent):
+        def link(source_ref: str, source_pin: str, target_ref: str, target_pin: str, interface: str, reason: str) -> Connection:
+            return Connection(**{"from": Endpoint(ref=source_ref, pin=source_pin), "to": Endpoint(ref=target_ref, pin=target_pin), "interface": interface, "reason": reason})
+
+        return HardwareIR(
+            board=ComponentInstance(ref="board", component_id="esp32-s3-devkit", label="ESP32-S3 DevKitC-1"),
+            components=[
+                ComponentInstance(ref="sensor", component_id="dht22", label="DHT22 temperature sensor"),
+                ComponentInstance(ref="warning_led", component_id="led", label="Temperature warning LED"),
+            ],
+            connections=[
+                link("board", "GPIO4", "sensor", "SDA", "gpio", "DHT22 data"),
+                link("board", "GPIO10", "warning_led", "A", "gpio", "LED alarm output through 220 ohm resistor"),
+            ],
+            power=[
+                link("board", "3V3", "sensor", "VCC", "power", "3.3V supply for DHT22"),
+                link("board", "GND", "sensor", "GND", "power", "Common ground for DHT22"),
+                link("board", "GND", "warning_led", "C", "power", "LED return"),
+            ],
+            constraints=[*spec.constraints, "220 ohm series resistor required for warning LED"],
+        )
     component_ids = ["ssd1306-oled", "dht22", "ky-040"]
     components = [
         ComponentInstance(ref="display", component_id=component_ids[0], label="OLED display"),
