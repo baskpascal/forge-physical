@@ -173,7 +173,8 @@ def update_build(build_id: str, change: str, *, dispatch: bool = True, store: Bu
     parent = store.get(build_id)
     if not supported_update_change(change):
         raise ValueError(
-            "Unsupported prototype update. This release supports adding motion/orientation sensing."
+            "Unsupported prototype update. Supported iterations include motion/orientation "
+            "sensing, temperature thresholds, naming/text, and enclosure changes."
         )
     requests_motion = product_has_motion_sensing(None, change)
     has_motion_hardware = bool(
