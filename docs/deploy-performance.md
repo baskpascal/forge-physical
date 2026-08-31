@@ -71,6 +71,16 @@ to both ignore contracts reduced `gcloud meta list-files-for-upload` from 246.2 
 1.05 MiB (112 files). The first branch run had already uploaded the large archive; subsequent
 runs use the corrected context and are the valid source-upload comparison.
 
+The first v2 cold production build, `cbebb1d9-3b4a-4ea9-a58a-f0bfaace7559`, completed
+successfully in 703.2 s (11:43.2) after 55.9 s of Cloud Build queueing. It intentionally
+created and pushed the new toolchain: 292.0 s build plus 199.3 s push. Even in that cold
+run, direct layer ancestry reduced worker push from 187.0 s to 39.2 s (79%). API, worker,
+and web builds were 123.8 s, 153.8 s, and 124.2 s. This cold migration run is not the normal
+full-deploy after value; it demonstrates both the one-time toolchain cost and the worker
+layer fix. The worker/API packaging now also installs third-party Python dependencies in a
+stable layer and the application itself from a small wheel layer, so source-only changes do
+not repack the full Google ADK virtualenv.
+
 ## Deployment routing and cache contract
 
 - Documentation and tests do not deploy production.

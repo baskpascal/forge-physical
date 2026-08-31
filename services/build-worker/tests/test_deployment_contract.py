@@ -24,7 +24,8 @@ def test_worker_runtime_keeps_prewarmed_hardware_tooling():
 
     assert "PLATFORMIO_CMD=/opt/platformio-venv/bin/platformio" in worker_stage
     assert "PLATFORMIO_CORE_DIR=/opt/platformio" in worker_stage
-    assert "COPY --from=backend-builder --chown=forge:forge /opt/venv" in worker_stage
+    assert "COPY --from=python-deps /opt/venv" in worker_stage
+    assert "COPY --from=package-builder /tmp/wheels" in worker_stage
     assert "COPY --from=tooling-runtime" not in worker_stage
 
 
@@ -34,9 +35,11 @@ def test_python_dependencies_cache_independently_from_application_source():
     )
 
     dependencies = dockerfile.index("metadata['project']['dependencies']")
+    package_builder = dockerfile.index("FROM python:3.13-slim AS package-builder")
     source = dockerfile.index("COPY services/build-worker/src")
-    application = dockerfile.index("pip install --no-cache-dir --no-deps")
-    assert dependencies < source < application
+    application_wheel = dockerfile.index("pip wheel --no-deps")
+    runtime_install = dockerfile.index("pip install --no-cache-dir --no-deps")
+    assert dependencies < package_builder < source < application_wheel < runtime_install
 
 
 def test_toolchain_is_worker_base_and_runs_unprivileged():

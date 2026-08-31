@@ -1,20 +1,26 @@
 ARG TOOLCHAIN_IMAGE=coup-worker-toolchain:local
-FROM python:3.13-slim AS backend-builder
+FROM python:3.13-slim AS python-deps
 ENV VIRTUAL_ENV=/opt/venv
 RUN python -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 WORKDIR /src
 COPY services/build-worker/pyproject.toml ./services/build-worker/pyproject.toml
 RUN python -c "import pathlib, subprocess, sys, tomllib; metadata = tomllib.loads(pathlib.Path('services/build-worker/pyproject.toml').read_text()); subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-cache-dir', '--retries', '10', '--timeout', '60', *metadata['project']['dependencies']])"
+
+FROM python:3.13-slim AS package-builder
+WORKDIR /src
+COPY services/build-worker/pyproject.toml ./services/build-worker/pyproject.toml
 COPY services/build-worker/src ./services/build-worker/src
-RUN pip install --no-cache-dir --no-deps ./services/build-worker
+RUN python -m pip wheel --no-deps --wheel-dir /tmp/wheels ./services/build-worker
 
 FROM python:3.13-slim AS runtime-base
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
     PORT=8080
-COPY --from=backend-builder /opt/venv /opt/venv
+COPY --from=python-deps /opt/venv /opt/venv
+COPY --from=package-builder /tmp/wheels /tmp/wheels
+RUN pip install --no-cache-dir --no-deps /tmp/wheels/*.whl && rm -rf /tmp/wheels
 WORKDIR /app
 RUN useradd --create-home --uid 10001 forge && mkdir -p /app/artifacts /app/data && chown -R forge:forge /app
 USER forge
@@ -36,4 +42,9 @@ ENV PYTHONUNBUFFERED=1 \
     PLATFORMIO_LIBDEPS_DIR=/opt/platformio/libdeps \
     PLATFORMIO_BUILD_CACHE_DIR=/opt/platformio/build-cache \
     PORT=8080
-COPY --from=backend-builder --chown=forge:forge /opt/venv /opt/venv
+USER root
+COPY --from=python-deps /opt/venv /opt/venv
+COPY --from=package-builder /tmp/wheels /tmp/wheels
+RUN /opt/venv/bin/pip install --no-cache-dir --no-deps /tmp/wheels/*.whl \
+    && rm -rf /tmp/wheels
+USER forge
