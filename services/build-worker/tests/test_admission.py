@@ -352,3 +352,41 @@ def test_firestore_admission_failure_is_reported_as_unavailable(tmp_path: Path, 
 
     with pytest.raises(BuildAdmissionUnavailable):
         store.reserve_build("new-build", "current", _settings(tmp_path))
+
+
+def test_firestore_queue_preserves_fifo_without_composite_index(monkeypatch):
+    class QueueSnapshot:
+        def __init__(self, build_id, created_at):
+            self.id = build_id
+            self.created_at = created_at
+
+        def to_dict(self):
+            return {"status": "queued", "created_at": self.created_at}
+
+    class EqualityQuery:
+        def __init__(self):
+            self.filter = None
+
+        def where(self, field, operator, value):
+            self.filter = (field, operator, value)
+            return self
+
+        def order_by(self, _field):
+            raise AssertionError("Queue admission must not require a composite index")
+
+        def stream(self):
+            return iter(
+                [
+                    QueueSnapshot("later", "2026-01-02T00:00:00+00:00"),
+                    QueueSnapshot("first-b", "2026-01-01T00:00:00+00:00"),
+                    QueueSnapshot("first-a", "2026-01-01T00:00:00+00:00"),
+                ]
+            )
+
+    query = EqualityQuery()
+    store = FirestoreBuildStore.__new__(FirestoreBuildStore)
+    store.client = type("Client", (), {"collection": lambda _self, _name: query})()
+    monkeypatch.setattr(store, "reconcile_expired_leases", lambda: [])
+
+    assert store.queued_build_ids() == ["first-a", "first-b", "later"]
+    assert query.filter == ("status", "==", "queued")
