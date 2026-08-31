@@ -76,12 +76,22 @@ function ElectronicsPanel({ build }: { build: Build }) {
   return <div className="evidence-panel"><div className="panel-summary"><Status value={validation ? (validation.passed ? "passed" : "failed") : "not_run"} /><p>{hardware.components.length + 1} components · {hardware.connections.length} signal paths · {hardware.power.length} power paths</p></div><div className="detail-columns"><section><p className="detail-label">COMPONENTS</p><ul><li>{hardware.board.ref} · {hardware.board.label}</li>{hardware.components.map((component) => <li key={component.ref}>{component.ref} · {component.label}</li>)}</ul></section><section><p className="detail-label">VALIDATOR CHECKS</p>{validation ? <ul>{Object.entries(validation.checks).map(([check, passed]) => <li key={check}><Status value={passed ? "passed" : "failed"} /> {check.replaceAll("_", " ")}</li>)}</ul> : <p className="muted-copy">Electrical validation has not run.</p>}</section></div><p className="detail-label">CONNECTIONS</p><div className="connection-list">{[...hardware.connections, ...hardware.power].map((connection, index) => <div key={`${connection.from.ref}-${connection.from.pin}-${connection.to.ref}-${connection.to.pin}-${index}`}><code>{connection.from.ref}.{connection.from.pin}</code><span>→</span><code>{connection.to.ref}.{connection.to.pin}</code><em>{connection.interface}</em><p>{connection.reason}</p></div>)}</div>{validation?.issues.length ? <section className="validation-issues"><p className="detail-label">VALIDATION ISSUES</p>{validation.issues.map((issue) => <p key={`${issue.code}-${issue.path}`}><Status value={issue.severity === "error" ? "failed" : "unavailable"} /> <b>{issue.code}</b> {issue.message}</p>)}</section> : null}</div>;
 }
 
+export function RepairProof({ events }: { events: Event[] }) {
+  const failedIndex = events.findIndex((event) => event.type === "firmware.compile.failed");
+  const repairIndex = events.findIndex((event, index) => index > failedIndex && event.type === "agent.repair.started");
+  const recompileIndex = events.findIndex((event, index) => index > repairIndex && event.type === "firmware.compile.started");
+  const passedIndex = events.findIndex((event, index) => index > recompileIndex && event.type === "firmware.compile.passed");
+  if (failedIndex < 0 || repairIndex < 0) return null;
+  const agent = String(events[repairIndex].metadata.agent || "EngineeringAgent");
+  return <section className="repair-proof" aria-label="Bounded firmware repair proof"><p className="detail-label">BOUNDED REPAIR PROOF</p><div><span className="failed"><b>!</b> COMPILE FAILED</span><i>→</i><span><b>{agent}</b> REPAIR</span><i>→</i><span className={recompileIndex >= 0 ? "passed" : "pending"}><b>↻</b> RECOMPILE</span><i>→</i><span className={passedIndex >= 0 ? "passed" : "pending"}><b>{passedIndex >= 0 ? "✓" : "…"}</b> {passedIndex >= 0 ? "PASS" : "PENDING"}</span></div></section>;
+}
+
 function SoftwarePanel({ build }: { build: Build }) {
   const source = build.artifact_paths.firmware_source;
   const platformio = build.artifact_paths.platformio;
   const sourceUrl = artifactUrl(build.id, source);
   const platformioUrl = artifactUrl(build.id, platformio);
-  return <div className="evidence-panel"><ToolEvidence result={build.firmware} noun="Firmware" /><p className="detail-label">GENERATED FILES</p>{sourceUrl || platformioUrl ? <ul className="artifact-list">{sourceUrl && <li><a href={sourceUrl}>main.cpp</a></li>}{platformioUrl && <li><a href={platformioUrl}>platformio.ini</a></li>}</ul> : <p className="muted-copy">Firmware artifacts are not available yet.</p>}</div>;
+  return <div className="evidence-panel"><ToolEvidence result={build.firmware} noun="Firmware" /><RepairProof events={build.events} /><p className="detail-label">GENERATED FILES</p>{sourceUrl || platformioUrl ? <ul className="artifact-list">{sourceUrl && <li><a href={sourceUrl}>main.cpp</a></li>}{platformioUrl && <li><a href={platformioUrl}>platformio.ini</a></li>}</ul> : <p className="muted-copy">Firmware artifacts are not available yet.</p>}</div>;
 }
 
 function TestsPanel({ build }: { build: Build }) {
