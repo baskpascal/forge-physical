@@ -95,6 +95,7 @@ def test_remote_cache_is_best_effort_and_embedded_in_images():
         cloudbuild = (REPOSITORY_ROOT / filename).read_text(encoding="utf-8")
         assert "--cache-from" in cloudbuild
         assert "BUILDKIT_INLINE_CACHE=1" in cloudbuild
+        assert "DOCKER_BUILDKIT=1" in cloudbuild
         assert "docker pull" in cloudbuild and "|| true" in cloudbuild
 
 

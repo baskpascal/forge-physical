@@ -6,6 +6,7 @@ substitutions:
 steps:
   - id: build
     name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
     entrypoint: bash
     args:
       - -ceu

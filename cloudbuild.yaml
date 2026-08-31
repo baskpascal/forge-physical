@@ -23,6 +23,7 @@ substitutions:
 steps:
   - id: toolchain-build
     name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
     entrypoint: bash
     waitFor: ['-']
     args:
@@ -49,6 +50,7 @@ steps:
 
   - id: api-build
     name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
     entrypoint: bash
     waitFor: ['-']
     args:
@@ -62,6 +64,7 @@ steps:
 
   - id: worker-build
     name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
     entrypoint: bash
     waitFor: [toolchain-push]
     args:
@@ -77,6 +80,7 @@ steps:
 
   - id: web-build
     name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
     entrypoint: bash
     waitFor: ['-']
     args:
