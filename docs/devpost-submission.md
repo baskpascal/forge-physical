@@ -15,6 +15,7 @@ Forge accepts a physical-product request through a Streamable HTTP MCP/FastAPI e
 ## How we built it
 
 - Google ADK + Gemini 3.5 Flash on Vertex AI (`us` inference location)
+- Three additional Vertex AI models for prompt-to-spec alignment: `gemini-embedding-001`, `text-embedding-005`, and `text-multilingual-embedding-002`
 - Cloud Run API and Cloud Run Job (`us-central1`)
 - Firestore event/state store
 - Cloud Storage artifact store

@@ -14,6 +14,7 @@ _PUBLIC_ARTIFACTS = {
     "hardware/product.json",
     "hardware/hardware.json",
     "hardware/verification.json",
+    "hardware/semantic-alignment.json",
     "hardware/firmware/platformio.ini",
     "hardware/firmware/.pio/build/esp32-s3-devkitc-1/firmware.bin",
     "hardware/firmware/.pio/build/esp32-s3-devkitc-1/firmware.elf",

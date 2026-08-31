@@ -12,5 +12,10 @@ Firestore is the source of truth for the build and its event stream. Cloud Stora
 
 The result is not a claim that virtual validation replaces physical testing. Assembly, EMI/EMC and thermals remain explicitly `not_verified`. The useful leap is that an agent can now own a complete, inspectable digital prototype loop—request, plan, generate, compile, simulate, validate and publish—on production cloud infrastructure.
 
+Forge also uses three additional Google embedding models—`gemini-embedding-001`,
+`text-embedding-005`, and `text-multilingual-embedding-002`—to compare the original request with
+the generated product specification. The build stores similarity, dimension and latency evidence,
+but never persists the raw vectors.
+
 Hosted Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>. Add the public repository and demo
 video links immediately before publishing.

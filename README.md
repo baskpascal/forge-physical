@@ -49,6 +49,7 @@ completed hardware-validation claim.
 | Build Room | Next.js 16, React 19, Three.js | Realtime product canvas, build stages, evidence |
 | API + MCP | FastAPI, MCP Python SDK | Async `prototype_*` tools and artifact delivery |
 | Agent workflow | Google ADK, Gemini 3.5 Flash | Product planning and evidence-grounded repair proposals |
+| Semantic alignment | Gemini Embedding, Text Embedding, Multilingual Embedding | Cross-model prompt-to-spec drift evidence |
 | Worker | Cloud Run Job-compatible Python process | Validators, PlatformIO, Wokwi, enclosure, report |
 | State | Firestore | Build source of truth and realtime event stream |
 | Artifacts | Cloud Storage in Cloud; filesystem locally | Firmware, Wokwi config, STL, reports |
@@ -173,6 +174,7 @@ Vertex AI's multi-region `us` endpoint with `gemini-3.5-flash`.
 | Firestore | Worker service-account write/read/delete probe verified. |
 | Cloud Storage | Worker service-account upload/download/delete probe verified. |
 | Vertex AI | Cloud Run Job called Gemini 3.5 Flash in `us`: `runtime_verified` (1,179 ms). |
+| Additional Google AI models | `gemini-embedding-001`, `text-embedding-005`, and `text-multilingual-embedding-002` each returned a 128-dimensional runtime probe. |
 | Wokwi | Golden-path project, lint, scenario, and validation are implemented. The current Secret Manager value is rejected by Wokwi as unauthorized and is not claimed as runtime-verified. |
 
 `python -m hardware_build.integration_check` is run in the Cloud Run Job and performs live probes;

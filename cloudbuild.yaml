@@ -44,7 +44,7 @@ steps:
       - '--service-account=forge-worker@$PROJECT_ID.iam.gserviceaccount.com'
       - '--command=python'
       - '--args=-m,hardware_build.run_job'
-      - '--set-env-vars=BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL}'
+      - '--set-env-vars=BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL},EMBEDDING_MODELS=gemini-embedding-001;text-embedding-005;text-multilingual-embedding-002'
       - '--set-secrets=WOKWI_CLI_TOKEN=wokwi-cli-token:latest'
       - '--task-timeout=30m'
       - '--memory=4Gi'

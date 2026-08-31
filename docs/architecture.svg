@@ -21,7 +21,7 @@
   <rect x="1370" y="165" width="170" height="120" class="box"/><text x="1392" y="205" class="h">Build Room</text><text x="1392" y="238" class="p">Live progress</text><text x="1392" y="263" class="small">Judge surface</text>
   <path d="M290 225H355" class="line"/><path d="M615 225H685" class="line"/><path d="M945 225H1015" class="line"/><path d="M1305 225H1370" class="line dash"/>
 
-  <rect x="80" y="385" width="270" height="130" class="tool" rx="16"/><text x="105" y="425" class="h">Google ADK</text><text x="105" y="458" class="p">ProductPlanner agent</text><text x="105" y="485" class="small">Gemini 3.5 Flash · Vertex AI</text>
+  <rect x="80" y="385" width="270" height="130" class="tool" rx="16"/><text x="105" y="425" class="h">Google ADK</text><text x="105" y="458" class="p">ProductPlanner agent</text><text x="105" y="485" class="small">Gemini 3.5 Flash · Vertex AI</text><text x="105" y="505" class="small">3 embedding models · drift proof</text>
   <rect x="410" y="385" width="250" height="130" class="tool" rx="16"/><text x="435" y="425" class="h">Hardware IR</text><text x="435" y="458" class="p">Catalog + connections</text><text x="435" y="485" class="small">Deterministic validators</text>
   <rect x="720" y="385" width="250" height="130" class="tool" rx="16"/><text x="745" y="425" class="h">PlatformIO</text><text x="745" y="458" class="p">Real ESP32 compile</text><text x="745" y="485" class="small">firmware.bin + firmware.elf</text>
   <rect x="1030" y="385" width="250" height="130" class="tool" rx="16"/><text x="1055" y="425" class="h">Wokwi CI</text><text x="1055" y="458" class="p">Lint + sensor scenario</text><text x="1055" y="485" class="small">Serial + GPIO assertions</text>

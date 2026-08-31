@@ -5,6 +5,7 @@ Every production claim below must remain tied to a reproducible check or immutab
 | Claim | Source / test | Production evidence | Limitation |
 | --- | --- | --- | --- |
 | Gemini plans the product | `hardware_build/agent.py`, agent tests | Build `agent_mode` and `plan.completed` event | A schema-invalid response is recorded as fallback, never hidden |
+| Three additional Google models verify intent | `semantic_alignment.py`, semantic-alignment test | Per-model dimension, similarity and latency in `semantic-alignment.json` | Raw embedding vectors are never persisted |
 | Async API → worker | `service.py`, service tests | Public `POST /api/builds`; Cloud Run Job execution name | Cold start may delay worker start |
 | Firestore state/event stream | `storage.py`, integration check | Build document plus ordered events | Firestore is not a hardware measurement |
 | ESP32 firmware compiles | `firmware.py`, firmware tests | PlatformIO output, `firmware.bin`, `firmware.elf` | Compile success does not prove physical assembly |

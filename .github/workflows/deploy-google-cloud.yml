@@ -40,9 +40,28 @@ jobs:
       - name: Submit the backend build and deployment
         shell: bash
         run: |
-          gcloud builds submit \
+          build_id="$(gcloud builds submit \
+            --async \
+            --format='value(id)' \
             --project="${{ vars.GCP_PROJECT_ID }}" \
             --service-account="projects/${{ vars.GCP_PROJECT_ID }}/serviceAccounts/${{ vars.GCP_SERVICE_ACCOUNT }}" \
             --gcs-source-staging-dir="gs://${{ vars.GCP_PROJECT_ID }}-forge-build-source/source" \
             --config=cloudbuild.yaml \
-            --substitutions="_REGION=${{ vars.GCP_REGION }},_IMAGE_TAG=${GITHUB_SHA}"
+            --substitutions="_REGION=${{ vars.GCP_REGION }},_IMAGE_TAG=${GITHUB_SHA}")"
+          echo "Cloud Build: ${build_id}"
+          for attempt in $(seq 1 90); do
+            status="$(gcloud builds describe "${build_id}" \
+              --project="${{ vars.GCP_PROJECT_ID }}" \
+              --format='value(status)' 2>/dev/null || true)"
+            case "${status}" in
+              SUCCESS) exit 0 ;;
+              FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+                echo "Cloud Build ${build_id} ended with ${status}" >&2
+                exit 1
+                ;;
+            esac
+            echo "Cloud Build ${build_id}: ${status:-status lookup throttled} (attempt ${attempt}/90)"
+            sleep 10
+          done
+          echo "Timed out waiting for Cloud Build ${build_id}" >&2
+          exit 1

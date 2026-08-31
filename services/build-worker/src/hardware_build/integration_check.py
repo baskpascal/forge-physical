@@ -12,7 +12,9 @@ from google import genai
 from google.auth.exceptions import DefaultCredentialsError
 from google.cloud import firestore, storage
 
+from .planning import deterministic_product_spec
 from .security import redact_text
+from .semantic_alignment import verify_semantic_alignment
 from .settings import Settings, get_settings
 from .simulation import run_wokwi, wokwi_token_is_valid
 
@@ -163,6 +165,19 @@ def check_wokwi(settings: Settings, project: Path | None, verified_build_id: str
     return _result("runtime_failed", redact_text(result.summary, settings))
 
 
+def check_additional_google_models(settings: Settings) -> dict:
+    prompt = "Create an ESP32 temperature alarm that turns on an LED above 30 degrees Celsius."
+    result = verify_semantic_alignment(prompt, deterministic_product_spec(prompt), settings)
+    if result.status == "passed":
+        verified = _result(
+            "runtime_verified",
+            "Three additional Google embedding models verified prompt-to-spec alignment.",
+        )
+        verified["models"] = result.evidence.get("models", [])
+        return verified
+    return _result("runtime_failed", redact_text(result.summary, settings))
+
+
 def run_checks(settings: Settings, wokwi_project: Path | None = None, verified_build_id: str | None = None) -> dict:
     _, adc_error = _adc(settings)
     return {
@@ -170,6 +185,7 @@ def run_checks(settings: Settings, wokwi_project: Path | None = None, verified_b
         "firestore": check_firestore(settings, adc_error),
         "cloud_storage": check_storage(settings, adc_error),
         "wokwi": check_wokwi(settings, wokwi_project, verified_build_id),
+        "additional_google_models": check_additional_google_models(settings),
     }
 
 

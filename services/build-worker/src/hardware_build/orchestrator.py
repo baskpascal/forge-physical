@@ -12,6 +12,7 @@ from .firmware import compile_firmware, deterministic_repair, generate_firmware
 from .models import BuildStage, BuildStatus, VerificationReport
 from .planning import deterministic_hardware_ir, product_has_temperature_alarm
 from .security import redact_text
+from .semantic_alignment import verify_semantic_alignment
 from .settings import Settings, get_settings
 from .simulation import generate_wokwi, run_wokwi
 from .storage import BuildStore, get_store
@@ -43,6 +44,25 @@ class BuildOrchestrator:
                 reporter.emit("build.unsupported", BuildStage.IDEA, "failed", build.error, progress=100, build_status=BuildStatus.UNSUPPORTED_SCOPE)
                 return
             reporter.emit("plan.completed", BuildStage.IDEA, "passed", f"Product brief ready: {outcome.spec.name}", progress=15, build_status=BuildStatus.BUILDING, metadata={"agent_mode": outcome.mode})
+
+            build.semantic_alignment = verify_semantic_alignment(
+                build.prompt,
+                build.product_spec,
+                self.settings,
+            )
+            alignment_path = workspace.write_json(
+                "semantic-alignment.json",
+                build.semantic_alignment,
+            )
+            build.artifact_paths["semantic_alignment"] = workspace.relative(alignment_path)
+            reporter.emit(
+                "plan.semantic_alignment",
+                BuildStage.IDEA,
+                build.semantic_alignment.status,
+                build.semantic_alignment.summary,
+                progress=20,
+                metadata=build.semantic_alignment.evidence,
+            )
 
             build.hardware = deterministic_hardware_ir(outcome.spec, build.prompt)
             component_ids = [component.component_id for component in build.hardware.components]

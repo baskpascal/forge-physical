@@ -232,6 +232,10 @@ resource "google_cloud_run_v2_job" "worker" {
           value = "gemini-3.5-flash"
         }
         env {
+          name  = "EMBEDDING_MODELS"
+          value = "gemini-embedding-001;text-embedding-005;text-multilingual-embedding-002"
+        }
+        env {
           name = "WOKWI_CLI_TOKEN"
           value_source {
             secret_key_ref {

@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     vertex_location: str = "us"
     google_genai_use_vertexai: bool = True
     gemini_model: str = "gemini-3.5-flash"
+    embedding_models: str = (
+        "gemini-embedding-001;text-embedding-005;text-multilingual-embedding-002"
+    )
     build_store: str = "local"
     build_data_dir: Path = Path("./data")
     build_artifact_dir: Path = Path("./artifacts")
@@ -35,6 +38,10 @@ class Settings(BaseSettings):
     @property
     def gemini_configured(self) -> bool:
         return bool(self.google_cloud_project and self.google_genai_use_vertexai)
+
+    @property
+    def embedding_model_ids(self) -> tuple[str, ...]:
+        return tuple(model.strip() for model in self.embedding_models.split(";") if model.strip())
 
     @property
     def secret_values(self) -> tuple[str, ...]:

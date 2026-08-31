@@ -144,6 +144,7 @@ class Build(BaseModel):
     product_spec: ProductSpec | None = None
     hardware: HardwareIR | None = None
     electrical_validation: ValidationResult | None = None
+    semantic_alignment: ToolResult | None = None
     firmware: ToolResult | None = None
     simulation: ToolResult | None = None
     enclosure: ToolResult | None = None
