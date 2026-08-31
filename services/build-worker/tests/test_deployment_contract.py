@@ -8,7 +8,7 @@ def test_api_runtime_excludes_hardware_tooling():
         encoding="utf-8"
     )
     api_stage = dockerfile.split("FROM runtime-base AS api-runtime", 1)[1].split(
-        "FROM ${TOOLCHAIN_IMAGE} AS tooling-runtime", 1
+        "FROM ${TOOLCHAIN_IMAGE} AS worker-runtime", 1
     )[0]
 
     assert "platformio" not in api_stage.lower()
@@ -20,11 +20,40 @@ def test_worker_runtime_keeps_prewarmed_hardware_tooling():
     dockerfile = (REPOSITORY_ROOT / "services/build-worker/Dockerfile").read_text(
         encoding="utf-8"
     )
-    worker_stage = dockerfile.split("FROM runtime-base AS worker-runtime", 1)[1]
+    worker_stage = dockerfile.split("FROM ${TOOLCHAIN_IMAGE} AS worker-runtime", 1)[1]
 
     assert "PLATFORMIO_CMD=/opt/platformio-venv/bin/platformio" in worker_stage
-    assert "COPY --from=tooling-runtime /usr/local/bin/wokwi-cli" in worker_stage
-    assert "COPY --from=tooling-runtime --chown=forge:forge /root/.platformio" in worker_stage
+    assert "PLATFORMIO_CORE_DIR=/opt/platformio" in worker_stage
+    assert "COPY --from=python-deps /opt/venv" in worker_stage
+    assert "COPY --from=package-builder /tmp/wheels" in worker_stage
+    assert "COPY --from=tooling-runtime" not in worker_stage
+
+
+def test_python_dependencies_cache_independently_from_application_source():
+    dockerfile = (REPOSITORY_ROOT / "services/build-worker/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    dependencies = dockerfile.index("metadata['project']['dependencies']")
+    package_builder = dockerfile.index("FROM python:3.13-slim AS package-builder")
+    source = dockerfile.index("COPY services/build-worker/src")
+    application_wheel = dockerfile.index("pip wheel --no-deps")
+    runtime_install = dockerfile.index("pip install --no-cache-dir --no-deps")
+    assert dependencies < package_builder < source < application_wheel < runtime_install
+
+
+def test_toolchain_is_worker_base_and_runs_unprivileged():
+    dockerfile = (REPOSITORY_ROOT / "services/build-worker/Dockerfile.toolchain").read_text(
+        encoding="utf-8"
+    )
+    app_dockerfile = (REPOSITORY_ROOT / "services/build-worker/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    assert "PLATFORMIO_CORE_DIR=/opt/platformio" in dockerfile
+    assert "chown -R forge:forge /app /opt/platformio" in dockerfile
+    assert "USER forge" in dockerfile
+    assert "FROM ${TOOLCHAIN_IMAGE} AS worker-runtime" in app_dockerfile
 
 
 def test_cloud_build_publishes_and_deploys_distinct_runtime_images():
@@ -66,6 +95,7 @@ def test_remote_cache_is_best_effort_and_embedded_in_images():
         cloudbuild = (REPOSITORY_ROOT / filename).read_text(encoding="utf-8")
         assert "--cache-from" in cloudbuild
         assert "BUILDKIT_INLINE_CACHE=1" in cloudbuild
+        assert "DOCKER_BUILDKIT=1" in cloudbuild
         assert "docker pull" in cloudbuild and "|| true" in cloudbuild
 
 
@@ -92,6 +122,17 @@ def test_stable_toolchain_is_not_rebuilt_for_python_changes():
     assert "sha256sum --check --strict" in dockerfile
     assert "_BUILD_TOOLCHAIN: 'false'" in cloudbuild
     assert "coup-worker-toolchain:${_TOOLCHAIN_VERSION}" in cloudbuild
+
+
+def test_toolchain_cache_dependencies_are_exactly_pinned():
+    platformio = (
+        REPOSITORY_ROOT
+        / "services/build-worker/tooling/platformio-cache/platformio.ini"
+    ).read_text(encoding="utf-8")
+
+    assert "@^" not in platformio
+    for version in ("1.11.11", "2.5.13", "1.1.15", "1.4.6", "2.2.6"):
+        assert f"@{version}" in platformio
 
 
 def test_terraform_assigns_each_image_to_the_correct_runtime():

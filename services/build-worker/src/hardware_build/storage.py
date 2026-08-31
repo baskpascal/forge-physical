@@ -376,8 +376,15 @@ class FirestoreBuildStore(BuildStore):
 
     def queued_build_ids(self) -> list[str]:
         self.reconcile_expired_leases()
-        query = self.client.collection("builds").where("status", "==", "queued").order_by("created_at")
-        return [snapshot.id for snapshot in query.stream()]
+        # Equality-only queries use Firestore's automatic single-field index. A
+        # server-side order_by would require a separately provisioned composite
+        # index and can take build admission down while that index is absent.
+        query = self.client.collection("builds").where("status", "==", "queued")
+        snapshots = list(query.stream())
+        snapshots.sort(
+            key=lambda snapshot: (snapshot.to_dict().get("created_at", ""), snapshot.id)
+        )
+        return [snapshot.id for snapshot in snapshots]
 
     def claim_build(self, build_id: str, settings: Settings) -> QueueClaim:
         queued = self.queued_build_ids()

@@ -6,7 +6,7 @@ substitutions:
   _WORKER_JOB: forge-worker
   _GEMINI_MODEL: gemini-3.5-flash
   _IMAGE_TAG: manual
-  _TOOLCHAIN_VERSION: v1-pio6.1.19-esp32-6.12.0-wokwi0.26.1
+  _TOOLCHAIN_VERSION: v2-pio6.1.19-esp32-6.12.0-wokwi0.26.1
   _PUBLIC_BUILD_URL: https://forge-web-rldj6ghw7q-uc.a.run.app
   _PUBLIC_API_URL: https://forge-api-rldj6ghw7q-uc.a.run.app
   _BUILD_MAX_CONCURRENT: '3'
@@ -23,6 +23,7 @@ substitutions:
 steps:
   - id: toolchain-build
     name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
     entrypoint: bash
     waitFor: ['-']
     args:
@@ -49,6 +50,7 @@ steps:
 
   - id: api-build
     name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
     entrypoint: bash
     waitFor: ['-']
     args:
@@ -62,6 +64,7 @@ steps:
 
   - id: worker-build
     name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
     entrypoint: bash
     waitFor: [toolchain-push]
     args:
@@ -77,6 +80,7 @@ steps:
 
   - id: web-build
     name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
     entrypoint: bash
     waitFor: ['-']
     args:

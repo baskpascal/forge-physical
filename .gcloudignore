@@ -12,7 +12,10 @@ node_modules/
 **/node_modules/
 .venv/
 .verify-venv/
+**/.terraform/
 .pytest_cache/
+.pytest-root*/
+**/.pytest-root*/
 .pytest-tmp*/
 .edge-arch-render/
 .ruff_cache/

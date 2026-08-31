@@ -8,10 +8,12 @@ gha-creds-*.json
 *.key
 .venv
 .platformio-venv
+**/.terraform
 node_modules
 **/.next
 **/__pycache__
 .pytest_cache
+**/.pytest-root*
 .coverage
 coverage
 .ruff_cache

@@ -80,3 +80,10 @@ def test_cloud_build_entrypoints_route_to_their_own_runtime():
 def test_unknown_production_input_fails_safe_to_full_app_deploy():
     result = MODULE.classify(["new-runtime-manifest.toml"])
     assert result["api"] and result["worker"] and result["web"] and result["deploy"]
+
+
+def test_dockerignore_change_rebuilds_every_image_context():
+    result = MODULE.classify([".dockerignore"])
+
+    assert result["api"] and result["worker"] and result["web"] and result["deploy"]
+    assert not result["toolchain"] and not result["config"]
