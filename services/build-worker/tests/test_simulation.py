@@ -84,9 +84,11 @@ def test_temperature_alarm_wokwi_project_has_real_sensor_and_led_assertions(tmp_
 
     diagram = json.loads(files["diagram"].read_text(encoding="utf-8"))
     assert {part["type"] for part in diagram["parts"]} >= {"wokwi-dht22", "wokwi-led", "wokwi-resistor"}
+    esp = next(part for part in diagram["parts"] if part["id"] == "esp")
+    assert esp["attrs"]["serialInterface"] == "USB_SERIAL_JTAG"
     assert ["esp:3V3.1", "sensor:VCC", "red", ["h30"]] in diagram["connections"]
     scenario = files["scenario"].read_text(encoding="utf-8")
     assert "control: temperature" in scenario
     assert "value: 25" in scenario and "value: 35" in scenario
-    assert "expected: 0" in scenario and "expected: 1" in scenario
+    assert "value: 0" in scenario and "value: 1" in scenario
     assert "TEMP_NORMAL" in scenario and "TEMP_ALERT" in scenario

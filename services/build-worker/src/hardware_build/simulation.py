@@ -86,7 +86,16 @@ def _generate_temperature_alarm_wokwi(firmware_dir: Path, simulation_dir: Path) 
                 "author": "Forge Physical",
                 "editor": "wokwi",
                 "parts": [
-                    {"type": "board-esp32-s3-devkitc-1", "id": "esp", "top": 0, "left": 0, "attrs": {}},
+                    # The firmware is built with ARDUINO_USB_CDC_ON_BOOT=1, so Wokwi
+                    # must expose the S3 USB serial/JTAG transport for scenario
+                    # wait-serial assertions to receive the firmware markers.
+                    {
+                        "type": "board-esp32-s3-devkitc-1",
+                        "id": "esp",
+                        "top": 0,
+                        "left": 0,
+                        "attrs": {"serialInterface": "USB_SERIAL_JTAG"},
+                    },
                     {"type": "wokwi-dht22", "id": "sensor", "top": 20, "left": 240, "attrs": {"temperature": "25", "humidity": "45"}},
                     {"type": "wokwi-resistor", "id": "led_resistor", "top": 170, "left": 220, "attrs": {"value": "220"}},
                     {"type": "wokwi-led", "id": "warning_led", "top": 170, "left": 340, "attrs": {"color": "red"}},
@@ -127,7 +136,7 @@ steps:
   - expect-pin:
       part-id: esp
       pin: 10
-      expected: 0
+      value: 0
   - set-control:
       part-id: sensor
       control: temperature
@@ -137,7 +146,7 @@ steps:
   - expect-pin:
       part-id: esp
       pin: 10
-      expected: 1
+      value: 1
   - wait-serial: 'COUP_TEST_PASS'
 """,
         encoding="utf-8",
@@ -197,8 +206,9 @@ def run_wokwi(settings: Settings, simulation_dir: Path, firmware_passed: bool) -
     lint_output = redact_text((lint.stdout + "\n" + lint.stderr)[-16000:], settings)
     serial_log = simulation_dir / "serial.log"
     command = [executable, ".", "--scenario", scenario.name, "--serial-log-file", serial_log.name]
-    if "COUP_TEST_PASS" in scenario_text:
-        command.extend(["--expect-text", "COUP_TEST_PASS"])
+    # The scenario itself waits for COUP_TEST_PASS after both GPIO assertions.
+    # Do not use --expect-text here: it exits as soon as the marker appears and
+    # can bypass the scenario's terminal completion reporting.
     command.extend(["--timeout", "20000", "--timeout-exit-code", "1"])
     completed = subprocess.run(command, cwd=simulation_dir, env=environment, capture_output=True, text=True, timeout=120, check=False)
     output = redact_text((completed.stdout + "\n" + completed.stderr)[-16000:], settings)
