@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import io
+import logging
 import re
 import zipfile
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from google.cloud import storage
@@ -23,7 +24,12 @@ from .orchestrator import run_build
 from .service import artifacts_payload, create_build, status_payload, update_build
 from .settings import get_settings
 from .simulation import wokwi_token_is_valid
-from .storage import BuildNotFoundError, get_store
+from .storage import (
+    BuildAdmissionRejected,
+    BuildAdmissionUnavailable,
+    BuildNotFoundError,
+    get_store,
+)
 
 
 @asynccontextmanager
@@ -33,6 +39,7 @@ async def lifespan(_: FastAPI):
 
 
 settings = get_settings()
+logger = logging.getLogger("forge.api")
 app = FastAPI(title="Forge Physical API", version="0.1.0", lifespan=lifespan)
 _BUILD_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 app.add_middleware(
@@ -45,6 +52,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    expose_headers=["Retry-After"],
 )
 
 
@@ -72,19 +80,63 @@ def health() -> dict:
                 )
             },
         },
+        "admission": {
+            "status": "enabled"
+            if settings.build_max_concurrent > 0 or settings.build_request_budget > 0
+            else "disabled",
+            "max_concurrent": settings.build_max_concurrent,
+            "request_budget": settings.build_request_budget,
+            "window_seconds": settings.build_request_window_seconds,
+        },
         "note": "Configuration is not runtime verification. Run python -m hardware_build.integration_check.",
     }
 
 
+def _client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    return forwarded or (request.client.host if request.client else "unknown")
+
+
+def _admission_http_error(exc: BuildAdmissionRejected) -> HTTPException:
+    logger.warning("Build admission rejected", extra={"reason": exc.reason})
+    return HTTPException(
+        status_code=429,
+        detail="Build capacity is temporarily full. Retry after the indicated delay.",
+        headers={"Retry-After": str(exc.retry_after)},
+    )
+
+
+def _admission_unavailable_error() -> HTTPException:
+    logger.error("Build admission storage unavailable")
+    return HTTPException(
+        status_code=503,
+        detail="Build admission is temporarily unavailable. Retry shortly.",
+        headers={"Retry-After": "30"},
+    )
+
+
 @app.post("/api/builds", status_code=202)
-def start(request: StartBuildRequest) -> dict:
-    return create_build(request.prompt).model_dump(mode="json")
+def start(payload: StartBuildRequest, request: Request) -> dict:
+    try:
+        return create_build(payload.prompt, client_key=_client_key(request)).model_dump(mode="json")
+    except BuildAdmissionRejected as exc:
+        raise _admission_http_error(exc) from exc
+    except BuildAdmissionUnavailable as exc:
+        raise _admission_unavailable_error() from exc
 
 
 @app.post("/api/builds/{build_id}/updates", status_code=202)
-def update(build_id: str, request: UpdateBuildRequest) -> dict:
+def update(build_id: str, payload: UpdateBuildRequest, request: Request) -> dict:
     try:
-        return update_build(build_id, request.change).model_dump(mode="json")
+        return update_build(
+            build_id,
+            payload.change,
+            client_key=_client_key(request),
+        ).model_dump(mode="json")
+    except BuildAdmissionRejected as exc:
+        raise _admission_http_error(exc) from exc
+    except BuildAdmissionUnavailable as exc:
+        raise _admission_unavailable_error() from exc
     except BuildNotFoundError as exc:
         raise HTTPException(404, "Build not found") from exc
     except ValueError as exc:

@@ -176,6 +176,14 @@ class BuildOrchestrator:
             # Do not attach the traceback: third-party exceptions can include request credentials.
             logger.error("Build failed", extra={"build_id": build_id, "error": build.error})
             reporter.emit("build.failed", build.stage, "failed", "The worker stopped on real evidence; no success state was fabricated.", progress=100, build_status=BuildStatus.FAILED, metadata={"error": build.error})
+        finally:
+            try:
+                self.store.release_build(build_id)
+            except Exception as exc:
+                logger.warning(
+                    "Could not release build admission lease",
+                    extra={"build_id": build_id, "error": redact_text(str(exc), self.settings)},
+                )
 
 
 def run_build(build_id: str) -> None:

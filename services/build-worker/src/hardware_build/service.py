@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
 from uuid import uuid4
 
 import httpx
@@ -49,7 +50,7 @@ def dispatch_build(build_id: str, settings: Settings | None = None, store: Build
     _executor.submit(BuildOrchestrator(store, settings).run, build_id)
 
 
-def create_build(prompt: str, *, dispatch: bool = True, store: BuildStore | None = None, settings: Settings | None = None, parent: Build | None = None) -> StartBuildResponse:
+def create_build(prompt: str, *, dispatch: bool = True, store: BuildStore | None = None, settings: Settings | None = None, parent: Build | None = None, client_key: str = "mcp") -> StartBuildResponse:
     store = store or get_store()
     settings = settings or get_settings()
     build_id = uuid4().hex[:12]
@@ -57,14 +58,22 @@ def create_build(prompt: str, *, dispatch: bool = True, store: BuildStore | None
         id=build_id, prompt=redact_text(prompt, settings), version=(parent.version + 1 if parent else 1),
         parent_build_id=parent.id if parent else None,
     )
-    store.create(build)
-    store.add_event(build_id, _created_event(build))
-    if dispatch:
-        dispatch_build(build_id, settings, store)
+    admission_key = sha256(client_key.encode("utf-8")).hexdigest()[:24]
+    store.reserve_build(build_id, admission_key, settings)
+    try:
+        store.create(build)
+        store.add_event(build_id, _created_event(build))
+        if dispatch:
+            dispatch_build(build_id, settings, store)
+    except Exception:
+        store.release_build(build_id)
+        raise
+    if not dispatch:
+        store.release_build(build_id)
     return StartBuildResponse(build_id=build_id, status=build.status, build_url=f"{settings.public_build_url.rstrip('/')}/build/{build_id}")
 
 
-def update_build(build_id: str, change: str, *, dispatch: bool = True, store: BuildStore | None = None, settings: Settings | None = None) -> StartBuildResponse:
+def update_build(build_id: str, change: str, *, dispatch: bool = True, store: BuildStore | None = None, settings: Settings | None = None, client_key: str = "mcp") -> StartBuildResponse:
     store = store or get_store()
     parent = store.get(build_id)
     if not supported_update_change(change):
@@ -78,7 +87,14 @@ def update_build(build_id: str, change: str, *, dispatch: bool = True, store: Bu
     if has_motion_hardware or product_has_motion_sensing(parent.product_spec, parent.prompt):
         raise ValueError("Motion sensing is already present in the parent build.")
     prompt = f"{parent.prompt}\n\nRequested update: {change}"
-    return create_build(prompt, dispatch=dispatch, store=store, settings=settings, parent=parent)
+    return create_build(
+        prompt,
+        dispatch=dispatch,
+        store=store,
+        settings=settings,
+        parent=parent,
+        client_key=client_key,
+    )
 
 
 def status_payload(build_id: str, store: BuildStore | None = None) -> dict:
