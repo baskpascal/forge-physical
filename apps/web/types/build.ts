@@ -44,6 +44,10 @@ export type Build = {
   progress: number;
   version: number;
   parent_build_id?: string;
+  queue_position?: number;
+  timings_ms?: Record<string, number>;
+  fingerprints?: Record<string, string>;
+  reuse_evidence?: Array<Record<string, unknown>>;
   product_spec?: { name: string; description: string; features: string[]; power: string; constraints: string[]; supported: boolean; unsupported_reason?: string };
   hardware?: Hardware;
   electrical_validation?: ValidationResult;

@@ -31,9 +31,13 @@ class Settings(BaseSettings):
     cloud_run_job_name: str | None = None
     internal_worker_token: str | None = None
     build_max_concurrent: int = 3
-    build_request_budget: int = 3
+    # Capacity is a queue concern; this separate per-client budget is only abuse protection.
+    # Twenty requests/hour supports a normal iterative demo while bounding public cost.
+    build_request_budget: int = 20
     build_request_window_seconds: int = 3600
-    build_lease_seconds: int = 900
+    build_lease_seconds: int = 300
+    build_heartbeat_seconds: int = 60
+    embedding_max_concurrency: int = 3
     platformio_cmd: str = "platformio"
     max_repair_attempts: int = 3
     wokwi_cli_token: str | None = None

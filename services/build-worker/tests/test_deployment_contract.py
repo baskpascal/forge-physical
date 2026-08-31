@@ -8,7 +8,7 @@ def test_api_runtime_excludes_hardware_tooling():
         encoding="utf-8"
     )
     api_stage = dockerfile.split("FROM runtime-base AS api-runtime", 1)[1].split(
-        "FROM python:3.13-slim AS tooling-builder", 1
+        "ARG TOOLCHAIN_IMAGE", 1
     )[0]
 
     assert "platformio" not in api_stage.lower()
@@ -30,12 +30,27 @@ def test_worker_runtime_keeps_prewarmed_hardware_tooling():
 def test_cloud_build_publishes_and_deploys_distinct_runtime_images():
     cloudbuild = (REPOSITORY_ROOT / "cloudbuild.yaml").read_text(encoding="utf-8")
 
-    assert "--target\n      - api-runtime" in cloudbuild
-    assert "--target\n      - worker-runtime" in cloudbuild
+    assert "--target api-runtime" in cloudbuild
+    assert "--target worker-runtime" in cloudbuild
     assert "${_REPOSITORY}/api:${_IMAGE_TAG}" in cloudbuild
     assert "${_REPOSITORY}/worker:${_IMAGE_TAG}" in cloudbuild
-    assert "--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:" in cloudbuild
-    assert "--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:" in cloudbuild
+    assert "api-deploy" in cloudbuild
+    assert "worker-deploy" in cloudbuild
+    assert "waitFor: [api-push]" in cloudbuild
+    assert "waitFor: [worker-push]" in cloudbuild
+
+
+def test_stable_toolchain_is_not_rebuilt_for_python_changes():
+    dockerfile = (REPOSITORY_ROOT / "services/build-worker/Dockerfile.toolchain").read_text(
+        encoding="utf-8"
+    )
+    cloudbuild = (REPOSITORY_ROOT / "cloudbuild.yaml").read_text(encoding="utf-8")
+
+    assert "platformio==6.1.19" in dockerfile
+    assert "espressif32@6.12.0" in dockerfile
+    assert "sha256sum --check --strict" in dockerfile
+    assert "_BUILD_TOOLCHAIN: 'false'" in cloudbuild
+    assert "coup-worker-toolchain:${_TOOLCHAIN_VERSION}" in cloudbuild
 
 
 def test_terraform_assigns_each_image_to_the_correct_runtime():

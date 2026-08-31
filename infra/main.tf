@@ -236,6 +236,14 @@ resource "google_cloud_run_v2_job" "worker" {
           value = "gemini-embedding-001;text-embedding-005;text-multilingual-embedding-002"
         }
         env {
+          name  = "BUILD_LEASE_SECONDS"
+          value = "300"
+        }
+        env {
+          name  = "BUILD_HEARTBEAT_SECONDS"
+          value = "60"
+        }
+        env {
           name = "WOKWI_CLI_TOKEN"
           value_source {
             secret_key_ref {
@@ -264,6 +272,14 @@ resource "google_cloud_run_v2_job_iam_member" "api_invokes_worker" {
   # covers executions without overrides; run.developer grants runWithOverrides.
   role   = "roles/run.developer"
   member = "serviceAccount:${local.api_sa}"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "worker_dispatches_queue" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.worker.name
+  role     = "roles/run.developer"
+  member   = "serviceAccount:${local.worker_sa}"
 }
 
 resource "google_cloud_run_v2_service" "api" {
@@ -340,7 +356,7 @@ resource "google_cloud_run_v2_service" "api" {
       }
       env {
         name  = "BUILD_REQUEST_BUDGET"
-        value = "3"
+        value = "20"
       }
       env {
         name  = "BUILD_REQUEST_WINDOW_SECONDS"
@@ -348,7 +364,11 @@ resource "google_cloud_run_v2_service" "api" {
       }
       env {
         name  = "BUILD_LEASE_SECONDS"
-        value = "900"
+        value = "300"
+      }
+      env {
+        name  = "BUILD_HEARTBEAT_SECONDS"
+        value = "60"
       }
     }
   }

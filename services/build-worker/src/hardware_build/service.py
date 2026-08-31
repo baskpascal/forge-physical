@@ -19,12 +19,18 @@ _executor = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("LOCAL_WORKER_TH
 
 
 def _created_event(build: Build) -> BuildEvent:
-    return BuildEvent(id=uuid4().hex, type="build.created", stage=BuildStage.IDEA, status="queued", message="Build accepted. The hardware worker is taking over.", metadata={"prompt": build.prompt})
+    return BuildEvent(id=uuid4().hex, type="build.created", stage=BuildStage.IDEA, status="queued", message="Build accepted and queued for hardware execution.", metadata={"prompt": build.prompt})
 
 
 def dispatch_build(build_id: str, settings: Settings | None = None, store: BuildStore | None = None) -> None:
     settings = settings or get_settings()
     store = store or get_store()
+    if settings.worker_dispatch_url and not settings.internal_worker_token:
+        raise RuntimeError("WORKER_DISPATCH_URL requires INTERNAL_WORKER_TOKEN from Secret Manager")
+    build = store.get(build_id)
+    build.dispatch_requested_at = now_iso()
+    build.queue_position = 0
+    store.save(build)
     if settings.cloud_run_job_name:
         client = run_v2.JobsClient()
         request = run_v2.RunJobRequest(
@@ -40,14 +46,65 @@ def dispatch_build(build_id: str, settings: Settings | None = None, store: Build
         client.run_job(request=request)
         return
     if settings.worker_dispatch_url:
-        if not settings.internal_worker_token:
-            raise RuntimeError("WORKER_DISPATCH_URL requires INTERNAL_WORKER_TOKEN from Secret Manager")
         headers = {"Authorization": f"Bearer {settings.internal_worker_token}"}
         with httpx.Client(timeout=10) as client:
             response = client.post(f"{settings.worker_dispatch_url.rstrip('/')}/internal/run/{build_id}", headers=headers)
             response.raise_for_status()
         return
     _executor.submit(BuildOrchestrator(store, settings).run, build_id)
+
+
+def try_dispatch_build(
+    build_id: str,
+    settings: Settings | None = None,
+    store: BuildStore | None = None,
+) -> int | None:
+    """Claim and dispatch one queued build. Repeated calls are safe and capacity queues."""
+    settings = settings or get_settings()
+    store = store or get_store()
+    claim = store.claim_build(build_id, settings)
+    if not claim.claimed:
+        if claim.position is not None:
+            build = store.get(build_id)
+            build.queue_position = claim.position
+            store.save(build)
+        return claim.position
+    try:
+        dispatch_build(build_id, settings, store)
+    except Exception as exc:
+        store.release_build(build_id)
+        build = store.get(build_id)
+        build.queue_position = 1
+        store.save(build)
+        store.add_event(
+            build_id,
+            BuildEvent(
+                id=uuid4().hex,
+                type="build.dispatch.deferred",
+                stage=BuildStage.IDEA,
+                status="queued",
+                message="Waiting for the hardware execution service to accept this queued build.",
+                metadata={"reason": type(exc).__name__},
+            ),
+        )
+        return 1
+    return 0
+
+
+def dispatch_next_queued(
+    settings: Settings | None = None,
+    store: BuildStore | None = None,
+) -> str | None:
+    """FIFO reconciliation used after completion and by status polling."""
+    settings = settings or get_settings()
+    store = store or get_store()
+    for build_id in store.queued_build_ids():
+        position = try_dispatch_build(build_id, settings, store)
+        if position == 0:
+            return build_id
+        if position is not None:
+            break
+    return None
 
 
 def create_build(prompt: str, *, dispatch: bool = True, store: BuildStore | None = None, settings: Settings | None = None, parent: Build | None = None, client_key: str = "mcp") -> StartBuildResponse:
@@ -59,18 +116,20 @@ def create_build(prompt: str, *, dispatch: bool = True, store: BuildStore | None
         parent_build_id=parent.id if parent else None,
     )
     admission_key = sha256(client_key.encode("utf-8")).hexdigest()[:24]
-    store.reserve_build(build_id, admission_key, settings)
+    store.check_request_budget(admission_key, settings)
     try:
         store.create(build)
         store.add_event(build_id, _created_event(build))
-        if dispatch:
-            dispatch_build(build_id, settings, store)
+        queue_position = try_dispatch_build(build_id, settings, store) if dispatch else None
     except Exception:
-        store.release_build(build_id)
         raise
-    if not dispatch:
-        store.release_build(build_id)
-    return StartBuildResponse(build_id=build_id, status=build.status, build_url=f"{settings.public_build_url.rstrip('/')}/build/{build_id}")
+    build = store.get(build_id)
+    return StartBuildResponse(
+        build_id=build_id,
+        status=build.status,
+        build_url=f"{settings.public_build_url.rstrip('/')}/build/{build_id}",
+        queue_position=queue_position,
+    )
 
 
 def update_build(build_id: str, change: str, *, dispatch: bool = True, store: BuildStore | None = None, settings: Settings | None = None, client_key: str = "mcp") -> StartBuildResponse:
@@ -80,11 +139,14 @@ def update_build(build_id: str, change: str, *, dispatch: bool = True, store: Bu
         raise ValueError(
             "Unsupported prototype update. This release supports adding motion/orientation sensing."
         )
+    requests_motion = product_has_motion_sensing(None, change)
     has_motion_hardware = bool(
         parent.hardware
         and any(component.component_id == "mpu6050" for component in parent.hardware.components)
     )
-    if has_motion_hardware or product_has_motion_sensing(parent.product_spec, parent.prompt):
+    if requests_motion and (
+        has_motion_hardware or product_has_motion_sensing(parent.product_spec, parent.prompt)
+    ):
         raise ValueError("Motion sensing is already present in the parent build.")
     prompt = f"{parent.prompt}\n\nRequested update: {change}"
     return create_build(
@@ -99,6 +161,13 @@ def update_build(build_id: str, change: str, *, dispatch: bool = True, store: Bu
 
 def status_payload(build_id: str, store: BuildStore | None = None) -> dict:
     store = store or get_store()
+    build = store.get(build_id)
+    if build.status.value == "queued":
+        try:
+            dispatch_next_queued(store=store)
+        except Exception:
+            # Status reads remain available while the best-effort reconciler retries later.
+            pass
     build = store.get(build_id)
     events = store.events(build_id)
     payload = build.model_dump(mode="json", by_alias=True)

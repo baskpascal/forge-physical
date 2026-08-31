@@ -1,21 +1,27 @@
 substitutions:
   _TARGET: worker-runtime
+  _TOOLCHAIN_IMAGE: us-central1-docker.pkg.dev/$PROJECT_ID/forge-physical/coup-worker-toolchain:v1-pio6.1.19-esp32-6.12.0-wokwi0.26.1
+  _CACHE_IMAGE: us-central1-docker.pkg.dev/$PROJECT_ID/forge-physical/worker:cache
 
 steps:
-  - name: gcr.io/cloud-builders/docker
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
     args:
-      - build
-      - -f
-      - services/build-worker/Dockerfile
-      - --target
-      - '${_TARGET}'
-      - -t
-      - '${_IMAGE}'
-      - .
-  - name: gcr.io/cloud-builders/docker
+      - -ceu
+      - |
+        docker pull '${_CACHE_IMAGE}' || true
+        docker build --cache-from '${_CACHE_IMAGE}' --build-arg 'TOOLCHAIN_IMAGE=${_TOOLCHAIN_IMAGE}' -f services/build-worker/Dockerfile --target '${_TARGET}' -t '${_IMAGE}' -t '${_CACHE_IMAGE}' .
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build]
     args: [push, '${_IMAGE}']
-
-images: ['${_IMAGE}']
+  - id: cache
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build]
+    entrypoint: bash
+    args: [-ceu, "docker push '${_CACHE_IMAGE}' || true"]
 
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8

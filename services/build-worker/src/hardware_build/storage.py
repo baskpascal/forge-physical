@@ -5,6 +5,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 from google.cloud import firestore
@@ -28,6 +29,12 @@ class BuildAdmissionUnavailable(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class QueueClaim:
+    claimed: bool
+    position: int | None = None
+
+
 class BuildStore(ABC):
     @abstractmethod
     def create(self, build: Build) -> None: ...
@@ -45,7 +52,19 @@ class BuildStore(ABC):
     def events(self, build_id: str) -> list[BuildEvent]: ...
 
     @abstractmethod
-    def reserve_build(self, build_id: str, client_key: str, settings: Settings) -> None: ...
+    def check_request_budget(self, client_key: str, settings: Settings) -> None: ...
+
+    @abstractmethod
+    def claim_build(self, build_id: str, settings: Settings) -> QueueClaim: ...
+
+    @abstractmethod
+    def start_execution(self, build_id: str) -> Build | None: ...
+
+    @abstractmethod
+    def renew_build(self, build_id: str, settings: Settings) -> bool: ...
+
+    @abstractmethod
+    def queued_build_ids(self) -> list[str]: ...
 
     @abstractmethod
     def release_build(self, build_id: str) -> None: ...
@@ -103,24 +122,36 @@ class LocalJsonBuildStore(BuildStore):
         with self._lock:
             return [BuildEvent.model_validate(item) for item in self._read(build_id)["events"]]
 
-    def reserve_build(self, build_id: str, client_key: str, settings: Settings) -> None:
-        if settings.build_max_concurrent <= 0 and settings.build_request_budget <= 0:
+    def check_request_budget(self, client_key: str, settings: Settings) -> None:
+        if settings.build_request_budget <= 0:
             return
         with self._lock:
             now = time.time()
-            self._active_leases = {
-                key: expiry for key, expiry in self._active_leases.items() if expiry > now
-            }
             requests = [
                 timestamp
                 for timestamp in self._request_times[client_key]
                 if timestamp > now - settings.build_request_window_seconds
             ]
             self._request_times[client_key] = requests
-            if (
-                settings.build_max_concurrent > 0
-                and len(self._active_leases) >= settings.build_max_concurrent
-            ):
+            if settings.build_request_budget > 0 and len(requests) >= settings.build_request_budget:
+                retry_after = int(requests[0] + settings.build_request_window_seconds - now) + 1
+                raise BuildAdmissionRejected("client_budget", retry_after)
+            requests.append(now)
+
+    # Backwards-compatible name for callers outside the package. Capacity is intentionally
+    # not reserved here anymore; builds queue before they claim an execution slot.
+    def reserve_build(self, build_id: str, client_key: str, settings: Settings) -> None:
+        if settings.build_max_concurrent <= 0 and settings.build_request_budget <= 0:
+            return
+        with self._lock:
+            now = time.time()
+            self._prune_leases(now)
+            requests = [
+                timestamp
+                for timestamp in self._request_times[client_key]
+                if timestamp > now - settings.build_request_window_seconds
+            ]
+            if settings.build_max_concurrent > 0 and len(self._active_leases) >= settings.build_max_concurrent:
                 retry_after = int(min(self._active_leases.values()) - now) + 1
                 raise BuildAdmissionRejected("global_concurrency", retry_after)
             if settings.build_request_budget > 0 and len(requests) >= settings.build_request_budget:
@@ -128,6 +159,55 @@ class LocalJsonBuildStore(BuildStore):
                 raise BuildAdmissionRejected("client_budget", retry_after)
             self._active_leases[build_id] = now + settings.build_lease_seconds
             requests.append(now)
+            self._request_times[client_key] = requests
+
+    def _prune_leases(self, now: float) -> None:
+        self._active_leases = {
+            key: expiry for key, expiry in self._active_leases.items() if expiry > now
+        }
+
+    def queued_build_ids(self) -> list[str]:
+        with self._lock:
+            queued: list[Build] = []
+            for path in self.root.glob("*.json"):
+                build = Build.model_validate(json.loads(path.read_text(encoding="utf-8"))["build"])
+                if build.status.value == "queued":
+                    queued.append(build)
+            return [build.id for build in sorted(queued, key=lambda item: item.created_at)]
+
+    def claim_build(self, build_id: str, settings: Settings) -> QueueClaim:
+        with self._lock:
+            now = time.time()
+            self._prune_leases(now)
+            if build_id in self._active_leases:
+                return QueueClaim(False, None)
+            queued = self.queued_build_ids()
+            if build_id not in queued:
+                return QueueClaim(False, None)
+            if settings.build_max_concurrent > 0 and len(self._active_leases) >= settings.build_max_concurrent:
+                waiting = [queued_id for queued_id in queued if queued_id not in self._active_leases]
+                return QueueClaim(False, waiting.index(build_id) + 1)
+            self._active_leases[build_id] = now + settings.build_lease_seconds
+            return QueueClaim(True, 0)
+
+    def start_execution(self, build_id: str) -> Build | None:
+        with self._lock:
+            build = self.get(build_id)
+            if build.status.value != "queued":
+                return None
+            build.execution_started_at = now_iso()
+            build.queue_position = 0
+            self.save(build)
+            return build
+
+    def renew_build(self, build_id: str, settings: Settings) -> bool:
+        with self._lock:
+            now = time.time()
+            self._prune_leases(now)
+            if build_id not in self._active_leases:
+                return False
+            self._active_leases[build_id] = now + settings.build_lease_seconds
+            return True
 
     def release_build(self, build_id: str) -> None:
         with self._lock:
@@ -166,8 +246,8 @@ class FirestoreBuildStore(BuildStore):
     def _admission_ref(self):
         return self.client.collection("system").document("build-admission")
 
-    def reserve_build(self, build_id: str, client_key: str, settings: Settings) -> None:
-        if settings.build_max_concurrent <= 0 and settings.build_request_budget <= 0:
+    def check_request_budget(self, client_key: str, settings: Settings) -> None:
+        if settings.build_request_budget <= 0:
             return
         transaction = self.client.transaction()
         reference = self._admission_ref()
@@ -177,11 +257,6 @@ class FirestoreBuildStore(BuildStore):
             snapshot = reference.get(transaction=transaction)
             payload = snapshot.to_dict() if snapshot.exists else {}
             now = time.time()
-            leases = {
-                key: float(expiry)
-                for key, expiry in payload.get("leases", {}).items()
-                if float(expiry) > now
-            }
             request_map = {
                 key: recent
                 for key, timestamps in payload.get("requests", {}).items()
@@ -194,13 +269,9 @@ class FirestoreBuildStore(BuildStore):
                 )
             }
             requests = request_map.get(client_key, [])
-            if settings.build_max_concurrent > 0 and len(leases) >= settings.build_max_concurrent:
-                retry_after = int(min(leases.values()) - now) + 1
-                raise BuildAdmissionRejected("global_concurrency", retry_after)
             if settings.build_request_budget > 0 and len(requests) >= settings.build_request_budget:
                 retry_after = int(requests[0] + settings.build_request_window_seconds - now) + 1
                 raise BuildAdmissionRejected("client_budget", retry_after)
-            leases[build_id] = now + settings.build_lease_seconds
             requests.append(now)
             request_map[client_key] = requests
             if len(request_map) > 256:
@@ -210,10 +281,7 @@ class FirestoreBuildStore(BuildStore):
                     reverse=True,
                 )[:256]
                 request_map = {key: request_map[key] for key in newest_clients}
-            transaction.set(
-                reference,
-                {"leases": leases, "requests": request_map, "updated_at": now_iso()},
-            )
+            transaction.set(reference, {**payload, "requests": request_map, "updated_at": now_iso()})
 
         try:
             reserve(transaction)
@@ -221,6 +289,114 @@ class FirestoreBuildStore(BuildStore):
             raise
         except Exception as exc:
             raise BuildAdmissionUnavailable("Build admission storage is unavailable") from exc
+
+    def reserve_build(self, build_id: str, client_key: str, settings: Settings) -> None:
+        transaction = self.client.transaction()
+        reference = self._admission_ref()
+
+        @firestore.transactional
+        def reserve(transaction):
+            snapshot = reference.get(transaction=transaction)
+            payload = snapshot.to_dict() if snapshot.exists else {}
+            now = time.time()
+            leases = {key: float(expiry) for key, expiry in payload.get("leases", {}).items() if float(expiry) > now}
+            request_map = {
+                key: recent
+                for key, timestamps in payload.get("requests", {}).items()
+                if (recent := [float(value) for value in timestamps if float(value) > now - settings.build_request_window_seconds])
+            }
+            requests = request_map.get(client_key, [])
+            if settings.build_max_concurrent > 0 and len(leases) >= settings.build_max_concurrent:
+                raise BuildAdmissionRejected("global_concurrency", int(min(leases.values()) - now) + 1)
+            if settings.build_request_budget > 0 and len(requests) >= settings.build_request_budget:
+                raise BuildAdmissionRejected("client_budget", int(requests[0] + settings.build_request_window_seconds - now) + 1)
+            leases[build_id] = now + settings.build_lease_seconds
+            requests.append(now)
+            request_map[client_key] = requests
+            transaction.set(reference, {"leases": leases, "requests": request_map, "updated_at": now_iso()})
+
+        try:
+            reserve(transaction)
+        except BuildAdmissionRejected:
+            raise
+        except Exception as exc:
+            raise BuildAdmissionUnavailable("Build admission storage is unavailable") from exc
+
+    def queued_build_ids(self) -> list[str]:
+        query = self.client.collection("builds").where("status", "==", "queued").order_by("created_at")
+        return [snapshot.id for snapshot in query.stream()]
+
+    def claim_build(self, build_id: str, settings: Settings) -> QueueClaim:
+        transaction = self.client.transaction()
+        reference = self._admission_ref()
+        build_reference = self._ref(build_id)
+
+        @firestore.transactional
+        def claim(transaction):
+            build_snapshot = build_reference.get(transaction=transaction)
+            if not build_snapshot.exists or build_snapshot.to_dict().get("status") != "queued":
+                return QueueClaim(False, None)
+            snapshot = reference.get(transaction=transaction)
+            payload = snapshot.to_dict() if snapshot.exists else {}
+            now = time.time()
+            leases = {
+                key: float(expiry)
+                for key, expiry in payload.get("leases", {}).items()
+                if float(expiry) > now
+            }
+            if build_id in leases:
+                return QueueClaim(False, None)
+            if settings.build_max_concurrent > 0 and len(leases) >= settings.build_max_concurrent:
+                return QueueClaim(False, 1)
+            leases[build_id] = now + settings.build_lease_seconds
+            transaction.set(reference, {**payload, "leases": leases, "updated_at": now_iso()})
+            transaction.update(build_reference, {"queue_position": 0})
+            return QueueClaim(True, 0)
+
+        try:
+            return claim(transaction)
+        except Exception as exc:
+            raise BuildAdmissionUnavailable("Build queue storage is unavailable") from exc
+
+    def start_execution(self, build_id: str) -> Build | None:
+        transaction = self.client.transaction()
+        reference = self._ref(build_id)
+
+        @firestore.transactional
+        def start(transaction):
+            snapshot = reference.get(transaction=transaction)
+            if not snapshot.exists or snapshot.to_dict().get("status") != "queued":
+                return None
+            started_at = now_iso()
+            transaction.update(
+                reference,
+                {"execution_started_at": started_at, "queue_position": 0},
+            )
+            payload = snapshot.to_dict()
+            payload["execution_started_at"] = started_at
+            payload["queue_position"] = 0
+            return Build.model_validate(payload)
+
+        return start(transaction)
+
+    def renew_build(self, build_id: str, settings: Settings) -> bool:
+        transaction = self.client.transaction()
+        reference = self._admission_ref()
+
+        @firestore.transactional
+        def renew(transaction):
+            snapshot = reference.get(transaction=transaction)
+            if not snapshot.exists:
+                return False
+            payload = snapshot.to_dict()
+            leases = payload.get("leases", {})
+            if build_id not in leases:
+                return False
+            leases[build_id] = time.time() + settings.build_lease_seconds
+            transaction.update(reference, {"leases": leases, "updated_at": now_iso()})
+            return True
+
+        return renew(transaction)
 
     def release_build(self, build_id: str) -> None:
         transaction = self.client.transaction()

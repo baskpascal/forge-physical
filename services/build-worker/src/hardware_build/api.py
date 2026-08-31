@@ -101,7 +101,7 @@ def _admission_http_error(exc: BuildAdmissionRejected) -> HTTPException:
     logger.warning("Build admission rejected", extra={"reason": exc.reason})
     return HTTPException(
         status_code=429,
-        detail="Build capacity is temporarily full. Retry after the indicated delay.",
+        detail="Per-client build request limit reached. Retry after the indicated delay.",
         headers={"Retry-After": str(exc.retry_after)},
     )
 

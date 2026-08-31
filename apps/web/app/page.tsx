@@ -26,7 +26,7 @@ export default function Home() {
       });
       if (response.status === 429) {
         const retryAfter = response.headers.get("Retry-After");
-        throw new Error(`Build capacity is full${retryAfter ? `; retry in ${retryAfter}s` : ""}`);
+        throw new Error(`Request limit reached${retryAfter ? `; try again in ${retryAfter}s` : ""}`);
       }
       if (!response.ok) throw new Error(`Build service returned ${response.status}`);
       const build = (await response.json()) as { build_id: string };
@@ -56,7 +56,7 @@ export default function Home() {
             <span>ESP32-S3 · Verified component catalog</span>
             <button disabled={busy}>{busy ? "Starting build…" : "Run build"}<b>↗</b></button>
           </div>
-          {error && <p className="form-error">{error}. The build service may be temporarily unavailable.</p>}
+          {error && <p className="form-error">{error}.</p>}
         </form>
       </section>
       <div className="landing-flow" aria-label="Product flow">

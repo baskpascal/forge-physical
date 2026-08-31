@@ -9,10 +9,13 @@ import type { Build, BuildStage } from "@/types/build";
 
 const terminal = new Set(["completed", "needs_review", "failed", "unsupported_scope"]);
 const macroStages: Array<{ label: string; stages: BuildStage[] }> = [
-  { label: "PLAN", stages: ["idea", "components", "electronics"] },
-  { label: "BUILD", stages: ["firmware"] },
-  { label: "SIMULATE", stages: ["simulation"] },
-  { label: "PACKAGE", stages: ["enclosure", "verification", "complete"] },
+  { label: "PLANNING", stages: ["idea", "components"] },
+  { label: "ELECTRONICS", stages: ["electronics"] },
+  { label: "FIRMWARE", stages: ["firmware"] },
+  { label: "SIMULATION", stages: ["simulation"] },
+  { label: "ENCLOSURE", stages: ["enclosure"] },
+  { label: "VERIFICATION", stages: ["verification"] },
+  { label: "COMPLETED", stages: ["complete"] },
 ];
 
 export function macroStageState(build: Build, stages: BuildStage[]) {
@@ -27,6 +30,9 @@ function duration(build: Build) {
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 export function terminalSummary(build: Build) {
+  if (build.status === "queued") return build.queue_position && build.queue_position > 0
+    ? `Waiting for hardware execution slot · Position ${build.queue_position}`
+    : "Queued · waiting for hardware execution slot";
   const elapsed = duration(build); if (!terminal.has(build.status)) return `${build.progress}% · ${build.stage.replaceAll("_", " ")}`;
   if (build.status === "completed") return elapsed ? `Completed in ${elapsed}` : "Completed";
   const stop = build.simulation?.status === "failed" || build.simulation?.status === "unavailable" ? "Simulation" : build.stage === "complete" ? "Verification" : build.stage;
@@ -41,6 +47,7 @@ export function BuildRoom({ buildId }: { buildId: string }) {
   return <main className="room-shell">
     <div className="room-topline"><Link href="/">COUP <span>/ Build Room</span></Link><div><span className={`live-dot ${transport}`} />{transport === "firestore" ? "FIRESTORE LIVE" : "CLOUD API STREAM"}<b>{build.id}</b></div></div>
     <header className="build-header"><div><p className="eyebrow">SUPPORTED LOW-VOLTAGE PROTOTYPE</p><h1>{title}</h1><p className="build-result-line">{terminalSummary(build)}</p></div><div className={`status-badge ${build.status}`}><i />{build.status.replaceAll("_", " ")}</div></header>
+    {build.status === "queued" && <p className="queue-notice" role="status">Queued · Waiting for hardware execution slot{build.queue_position && build.queue_position > 0 ? ` · Position: ${build.queue_position}` : ""}</p>}
     <section className="build-overview">
       <ProductCanvas build={build} />
       <aside className="receipt-card"><VerificationPanel report={displayVerification(build)} /></aside>

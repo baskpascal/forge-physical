@@ -70,6 +70,39 @@ def test_concurrent_reservations_never_exceed_global_cap(tmp_path: Path):
     assert sum(admitted) == settings.build_max_concurrent
 
 
+def test_fourth_build_is_queued_instead_of_capacity_429(tmp_path: Path, monkeypatch):
+    store = LocalJsonBuildStore(tmp_path / "data")
+    settings = _settings(tmp_path, build_max_concurrent=3, build_request_budget=20)
+    monkeypatch.setattr("hardware_build.service.dispatch_build", lambda *_args, **_kwargs: None)
+
+    responses = [
+        create_build(
+            f"Build supported low voltage temperature alarm {index}",
+            store=store,
+            settings=settings,
+            client_key="judge",
+        )
+        for index in range(4)
+    ]
+
+    assert [response.queue_position for response in responses] == [0, 0, 0, 1]
+    assert responses[3].status.value == "queued"
+
+
+def test_queue_claim_is_idempotent(tmp_path: Path):
+    store = LocalJsonBuildStore(tmp_path / "data")
+    settings = _settings(tmp_path)
+    build = create_build(
+        "Build a supported low voltage alarm",
+        dispatch=False,
+        store=store,
+        settings=settings,
+    )
+
+    assert store.claim_build(build.build_id, settings).claimed
+    assert not store.claim_build(build.build_id, settings).claimed
+
+
 def test_expired_lease_and_budget_are_reclaimed(tmp_path: Path, monkeypatch):
     store = LocalJsonBuildStore(tmp_path / "data")
     settings = _settings(tmp_path, build_max_concurrent=1, build_request_budget=1)

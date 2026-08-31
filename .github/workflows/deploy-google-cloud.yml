@@ -1,4 +1,4 @@
-name: Deploy Google Cloud backend
+name: Deploy Google Cloud
 
 on:
   push:
@@ -10,13 +10,38 @@ permissions:
   id-token: write
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.routes.outputs.api }}
+      worker: ${{ steps.routes.outputs.worker }}
+      web: ${{ steps.routes.outputs.web }}
+      toolchain: ${{ steps.routes.outputs.toolchain }}
+      config: ${{ steps.routes.outputs.config }}
+      deploy: ${{ steps.routes.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: routes
+        name: Route changed production inputs
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            python scripts/detect-deploy-changes.py --all
+          else
+            python scripts/detect-deploy-changes.py --base "${BEFORE_SHA}" --head "${GITHUB_SHA}"
+          fi
+
   deploy:
-    if: ${{ vars.GCP_PROJECT_ID != '' }}
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true' && vars.GCP_PROJECT_ID != ''
     runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v7
-
       - id: auth
         name: Authenticate with short-lived Google credentials
         uses: google-github-actions/auth@v3
@@ -24,44 +49,41 @@ jobs:
           project_id: ${{ vars.GCP_PROJECT_ID }}
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
-
       - uses: google-github-actions/setup-gcloud@v3
-
       - name: Verify keyless Google Cloud authentication
         shell: bash
         run: |
           gcloud auth list --filter=status:ACTIVE --format="value(account)"
           gcloud config get-value project
-          gcloud run services describe forge-api \
-            --region="${{ vars.GCP_REGION }}" \
-            --project="${{ vars.GCP_PROJECT_ID }}" \
-            --format="value(metadata.name,status.url)"
-
-      - name: Submit the backend build and deployment
+      - name: Submit selective parallel build and deployment
         shell: bash
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          DEPLOY_API: ${{ needs.changes.outputs.api }}
+          DEPLOY_WORKER: ${{ needs.changes.outputs.worker }}
+          DEPLOY_WEB: ${{ needs.changes.outputs.web }}
+          BUILD_TOOLCHAIN: ${{ needs.changes.outputs.toolchain }}
+          CONFIG_CHANGED: ${{ needs.changes.outputs.config }}
         run: |
+          submitted_at="$(date +%s)"
           build_id="$(gcloud builds submit \
-            --async \
-            --format='value(id)' \
-            --project="${{ vars.GCP_PROJECT_ID }}" \
-            --service-account="projects/${{ vars.GCP_PROJECT_ID }}/serviceAccounts/${{ vars.GCP_SERVICE_ACCOUNT }}" \
-            --gcs-source-staging-dir="gs://${{ vars.GCP_PROJECT_ID }}-forge-build-source/source" \
+            --async --format='value(id)' \
+            --project="${GCP_PROJECT_ID}" \
+            --service-account="projects/${GCP_PROJECT_ID}/serviceAccounts/${GCP_SERVICE_ACCOUNT}" \
+            --gcs-source-staging-dir="gs://${GCP_PROJECT_ID}-forge-build-source/source" \
             --config=cloudbuild.yaml \
-            --substitutions="_REGION=${{ vars.GCP_REGION }},_IMAGE_TAG=${GITHUB_SHA}")"
+            --substitutions="_REGION=${GCP_REGION},_IMAGE_TAG=${GITHUB_SHA},_DEPLOY_API=${DEPLOY_API},_DEPLOY_WORKER=${DEPLOY_WORKER},_DEPLOY_WEB=${DEPLOY_WEB},_BUILD_TOOLCHAIN=${BUILD_TOOLCHAIN},_CONFIG_CHANGED=${CONFIG_CHANGED}")"
+          echo "source_upload_and_submit_seconds=$(($(date +%s)-submitted_at))"
           echo "Cloud Build: ${build_id}"
           for attempt in $(seq 1 180); do
-            status="$(gcloud builds describe "${build_id}" \
-              --project="${{ vars.GCP_PROJECT_ID }}" \
-              --format='value(status)' 2>/dev/null || true)"
+            status="$(gcloud builds describe "${build_id}" --project="${GCP_PROJECT_ID}" --format='value(status)' 2>/dev/null || true)"
             case "${status}" in
               SUCCESS) exit 0 ;;
-              FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
-                echo "Cloud Build ${build_id} ended with ${status}" >&2
-                exit 1
-                ;;
+              FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED) echo "Cloud Build ${build_id} ended with ${status}" >&2; exit 1 ;;
             esac
-            echo "Cloud Build ${build_id}: ${status:-status lookup throttled} (attempt ${attempt}/180)"
-            sleep 10
+            sleep 5
           done
           echo "Timed out waiting for Cloud Build ${build_id}" >&2
           exit 1

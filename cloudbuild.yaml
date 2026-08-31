@@ -6,93 +6,154 @@ substitutions:
   _WORKER_JOB: forge-worker
   _GEMINI_MODEL: gemini-3.5-flash
   _IMAGE_TAG: manual
+  _TOOLCHAIN_VERSION: v1-pio6.1.19-esp32-6.12.0-wokwi0.26.1
   _PUBLIC_BUILD_URL: https://forge-web-rldj6ghw7q-uc.a.run.app
   _PUBLIC_API_URL: https://forge-api-rldj6ghw7q-uc.a.run.app
   _BUILD_MAX_CONCURRENT: '3'
-  _BUILD_REQUEST_BUDGET: '3'
+  _BUILD_REQUEST_BUDGET: '20'
   _BUILD_REQUEST_WINDOW_SECONDS: '3600'
-  _BUILD_LEASE_SECONDS: '900'
+  _BUILD_LEASE_SECONDS: '300'
+  _BUILD_HEARTBEAT_SECONDS: '60'
+  _DEPLOY_API: 'true'
+  _DEPLOY_WORKER: 'true'
+  _DEPLOY_WEB: 'true'
+  _BUILD_TOOLCHAIN: 'false'
+  _CONFIG_CHANGED: 'false'
 
 steps:
-  - name: gcr.io/cloud-builders/docker
+  - id: toolchain-build
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    waitFor: ['-']
     args:
-      - build
-      - -f
-      - services/build-worker/Dockerfile
-      - --target
-      - api-runtime
-      - -t
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}'
-      - .
-  - name: gcr.io/cloud-builders/docker
-    args: [push, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}']
-  - name: gcr.io/cloud-builders/docker
-    args:
-      - build
-      - -f
-      - services/build-worker/Dockerfile
-      - --target
-      - worker-runtime
-      - -t
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}'
-      - .
-  - name: gcr.io/cloud-builders/docker
-    args: [push, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}']
-  - name: gcr.io/cloud-builders/docker
-    args:
-      - build
-      - -f
-      - apps/web/Dockerfile
-      - --build-arg
-      - NEXT_PUBLIC_BUILD_API_URL=${_PUBLIC_API_URL}
-      - -t
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}'
-      - .
-  - name: gcr.io/cloud-builders/docker
-    args: [push, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}']
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: gcloud
-    args:
-      - run
-      - jobs
-      - deploy
-      - '${_WORKER_JOB}'
-      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}'
-      - '--region=${_REGION}'
-      - '--service-account=forge-worker@$PROJECT_ID.iam.gserviceaccount.com'
-      - '--command=python'
-      - '--args=-m,hardware_build.run_job'
-      - '--set-env-vars=BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL},EMBEDDING_MODELS=gemini-embedding-001;text-embedding-005;text-multilingual-embedding-002'
-      - '--set-secrets=WOKWI_CLI_TOKEN=wokwi-cli-token:latest'
-      - '--task-timeout=30m'
-      - '--memory=4Gi'
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: gcloud
-    args:
-      - run
-      - deploy
-      - '${_API_SERVICE}'
-      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}'
-      - '--region=${_REGION}'
-      - '--service-account=forge-api@$PROJECT_ID.iam.gserviceaccount.com'
-      - '--allow-unauthenticated'
-      - '--set-env-vars=BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL},PUBLIC_BUILD_URL=${_PUBLIC_BUILD_URL},PUBLIC_API_URL=${_PUBLIC_API_URL},CLOUD_RUN_JOB_NAME=projects/$PROJECT_ID/locations/${_REGION}/jobs/${_WORKER_JOB},BUILD_MAX_CONCURRENT=${_BUILD_MAX_CONCURRENT},BUILD_REQUEST_BUDGET=${_BUILD_REQUEST_BUDGET},BUILD_REQUEST_WINDOW_SECONDS=${_BUILD_REQUEST_WINDOW_SECONDS},BUILD_LEASE_SECONDS=${_BUILD_LEASE_SECONDS}'
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: gcloud
-    args:
-      - run
-      - deploy
-      - '${_WEB_SERVICE}'
-      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}'
-      - '--region=${_REGION}'
-      - '--service-account=forge-web@$PROJECT_ID.iam.gserviceaccount.com'
-      - '--allow-unauthenticated'
-      - '--memory=512Mi'
+      - -ceu
+      - |
+        [[ '${_BUILD_TOOLCHAIN}' == 'true' ]] || exit 0
+        image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/coup-worker-toolchain:${_TOOLCHAIN_VERSION}'
+        cache='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/coup-worker-toolchain:cache'
+        docker pull "$$cache" || true
+        docker build --cache-from "$$cache" -f services/build-worker/Dockerfile.toolchain -t "$$image" -t "$$cache" .
 
-images:
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}'
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}'
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}'
+  - id: toolchain-push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    waitFor: [toolchain-build]
+    args:
+      - -ceu
+      - |
+        [[ '${_BUILD_TOOLCHAIN}' == 'true' ]] || exit 0
+        image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/coup-worker-toolchain:${_TOOLCHAIN_VERSION}'
+        cache='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/coup-worker-toolchain:cache'
+        docker push "$$image"
+        docker push "$$cache" || true
+
+  - id: api-build
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    waitFor: ['-']
+    args:
+      - -ceu
+      - |
+        [[ '${_DEPLOY_API}' == 'true' ]] || exit 0
+        image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}'
+        cache='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:cache'
+        docker pull "$$cache" || true
+        docker build --cache-from "$$cache" -f services/build-worker/Dockerfile --target api-runtime -t "$$image" -t "$$cache" .
+
+  - id: worker-build
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    waitFor: [toolchain-push]
+    args:
+      - -ceu
+      - |
+        [[ '${_DEPLOY_WORKER}' == 'true' ]] || exit 0
+        image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}'
+        new_digest="$$(gcloud artifacts docker images describe "$$image" --format='value(image_summary.digest)')"
+        current_image="$$(gcloud run jobs describe '${_WORKER_JOB}' --region='${_REGION}' --format='value(spec.template.template.containers[0].image)' 2>/dev/null || true)"
+        current_digest="$$(gcloud artifacts docker images describe "$$current_image" --format='value(image_summary.digest)' 2>/dev/null || true)"
+        if [[ '${_CONFIG_CHANGED}' != 'true' && -n "$$new_digest" && "$$new_digest" == "$$current_digest" ]]; then echo 'worker image/config unchanged; skipping revision'; exit 0; fi
+        cache='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:cache'
+        toolchain='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/coup-worker-toolchain:${_TOOLCHAIN_VERSION}'
+        docker pull "$$cache" || true
+        docker pull "$$toolchain"
+        docker build --cache-from "$$cache" --build-arg "TOOLCHAIN_IMAGE=$$toolchain" -f services/build-worker/Dockerfile --target worker-runtime -t "$$image" -t "$$cache" .
+
+  - id: web-build
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    waitFor: ['-']
+    args:
+      - -ceu
+      - |
+        [[ '${_DEPLOY_WEB}' == 'true' ]] || exit 0
+        image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}'
+        cache='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:cache'
+        docker pull "$$cache" || true
+        docker build --cache-from "$$cache" --build-arg NEXT_PUBLIC_BUILD_API_URL=${_PUBLIC_API_URL} -f apps/web/Dockerfile -t "$$image" -t "$$cache" .
+
+  - id: api-push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    waitFor: [api-build]
+    args: [-ceu, "[[ '${_DEPLOY_API}' == 'true' ]] || exit 0; docker push '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}'; docker push '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:cache' || true"]
+
+  - id: worker-push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    waitFor: [worker-build]
+    args: [-ceu, "[[ '${_DEPLOY_WORKER}' == 'true' ]] || exit 0; docker push '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}'; docker push '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:cache' || true"]
+
+  - id: web-push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    waitFor: [web-build]
+    args: [-ceu, "[[ '${_DEPLOY_WEB}' == 'true' ]] || exit 0; docker push '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}'; docker push '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:cache' || true"]
+
+  - id: worker-deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    waitFor: [worker-push]
+    args:
+      - -ceu
+      - |
+        [[ '${_DEPLOY_WORKER}' == 'true' ]] || exit 0
+        image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/worker:${_IMAGE_TAG}'
+        gcloud run jobs deploy '${_WORKER_JOB}' --image="$$image" --region='${_REGION}' --service-account="forge-worker@$PROJECT_ID.iam.gserviceaccount.com" --command=python --args=-m,hardware_build.run_job --set-env-vars='BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL},EMBEDDING_MODELS=gemini-embedding-001;text-embedding-005;text-multilingual-embedding-002,BUILD_LEASE_SECONDS=${_BUILD_LEASE_SECONDS},BUILD_HEARTBEAT_SECONDS=${_BUILD_HEARTBEAT_SECONDS}' --set-secrets=WOKWI_CLI_TOKEN=wokwi-cli-token:latest --task-timeout=30m --memory=4Gi
+
+  - id: api-deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    waitFor: [api-push]
+    args:
+      - -ceu
+      - |
+        [[ '${_DEPLOY_API}' == 'true' ]] || exit 0
+        image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/api:${_IMAGE_TAG}'
+        new_digest="$$(gcloud artifacts docker images describe "$$image" --format='value(image_summary.digest)')"
+        current_image="$$(gcloud run services describe '${_API_SERVICE}' --region='${_REGION}' --format='value(spec.template.spec.containers[0].image)' 2>/dev/null || true)"
+        current_digest="$$(gcloud artifacts docker images describe "$$current_image" --format='value(image_summary.digest)' 2>/dev/null || true)"
+        if [[ '${_CONFIG_CHANGED}' != 'true' && -n "$$new_digest" && "$$new_digest" == "$$current_digest" ]]; then echo 'api image/config unchanged; skipping revision'; exit 0; fi
+        gcloud run deploy '${_API_SERVICE}' --image="$$image" --region='${_REGION}' --service-account="forge-api@$PROJECT_ID.iam.gserviceaccount.com" --allow-unauthenticated --set-env-vars='BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL},PUBLIC_BUILD_URL=${_PUBLIC_BUILD_URL},PUBLIC_API_URL=${_PUBLIC_API_URL},CLOUD_RUN_JOB_NAME=projects/$PROJECT_ID/locations/${_REGION}/jobs/${_WORKER_JOB},BUILD_MAX_CONCURRENT=${_BUILD_MAX_CONCURRENT},BUILD_REQUEST_BUDGET=${_BUILD_REQUEST_BUDGET},BUILD_REQUEST_WINDOW_SECONDS=${_BUILD_REQUEST_WINDOW_SECONDS},BUILD_LEASE_SECONDS=${_BUILD_LEASE_SECONDS},BUILD_HEARTBEAT_SECONDS=${_BUILD_HEARTBEAT_SECONDS}'
+
+  - id: web-deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    waitFor: [web-push]
+    args:
+      - -ceu
+      - |
+        [[ '${_DEPLOY_WEB}' == 'true' ]] || exit 0
+        image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/web:${_IMAGE_TAG}'
+        new_digest="$$(gcloud artifacts docker images describe "$$image" --format='value(image_summary.digest)')"
+        current_image="$$(gcloud run services describe '${_WEB_SERVICE}' --region='${_REGION}' --format='value(spec.template.spec.containers[0].image)' 2>/dev/null || true)"
+        current_digest="$$(gcloud artifacts docker images describe "$$current_image" --format='value(image_summary.digest)' 2>/dev/null || true)"
+        if [[ '${_CONFIG_CHANGED}' != 'true' && -n "$$new_digest" && "$$new_digest" == "$$current_digest" ]]; then echo 'web image/config unchanged; skipping revision'; exit 0; fi
+        gcloud run deploy '${_WEB_SERVICE}' --image="$$image" --region='${_REGION}' --service-account="forge-web@$PROJECT_ID.iam.gserviceaccount.com" --allow-unauthenticated --memory=512Mi
 
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+  diskSizeGb: 100
+
+timeout: 1800s

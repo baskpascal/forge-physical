@@ -35,6 +35,8 @@ def test_build_state_machine_completes_with_real_tool_contracts(tmp_path: Path, 
     assert "motion read" not in build.verification.scenario_checks
     assert event_types[0] == "build.created"
     assert "electronics.verified" in event_types and "build.completed" in event_types
+    assert "build.metrics" in event_types
+    assert set(build.timings_ms) >= {"queue_wait_ms", "platformio_compile_ms", "total_ms"}
 
 
 def test_start_returns_before_worker_when_dispatch_disabled(tmp_path: Path):

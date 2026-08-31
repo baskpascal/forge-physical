@@ -141,6 +141,9 @@ class Build(BaseModel):
     progress: int = 0
     version: int = 1
     parent_build_id: str | None = None
+    queue_position: int | None = None
+    dispatch_requested_at: str | None = None
+    execution_started_at: str | None = None
     product_spec: ProductSpec | None = None
     hardware: HardwareIR | None = None
     electrical_validation: ValidationResult | None = None
@@ -150,6 +153,9 @@ class Build(BaseModel):
     enclosure: ToolResult | None = None
     verification: VerificationReport | None = None
     artifact_paths: dict[str, str] = Field(default_factory=dict)
+    fingerprints: dict[str, str] = Field(default_factory=dict)
+    reuse_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    timings_ms: dict[str, int] = Field(default_factory=dict)
     agent_mode: str = "pending"
     error: str | None = None
     created_at: str = Field(default_factory=now_iso)
@@ -168,3 +174,4 @@ class StartBuildResponse(BaseModel):
     build_id: str
     status: BuildStatus
     build_url: str
+    queue_position: int | None = None

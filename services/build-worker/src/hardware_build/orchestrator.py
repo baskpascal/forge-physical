@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 
 from .agent import plan_product, propose_repair
@@ -9,6 +13,7 @@ from .artifacts import ArtifactWorkspace
 from .enclosure import generate_enclosure
 from .events import BuildReporter
 from .firmware import compile_firmware, deterministic_repair, generate_firmware
+from .incremental import build_fingerprints, reusable_phases
 from .models import BuildStage, BuildStatus, VerificationReport
 from .planning import deterministic_hardware_ir, product_has_temperature_alarm
 from .security import redact_text
@@ -27,10 +32,59 @@ class BuildOrchestrator:
         self.settings = settings or get_settings()
 
     def run(self, build_id: str) -> None:
-        build = self.store.get(build_id)
+        build = self.store.start_execution(build_id)
+        if build is None:
+            logger.info("Ignoring duplicate build execution", extra={"build_id": build_id})
+            return
         reporter = BuildReporter(self.store, build, self.settings)
         workspace = ArtifactWorkspace(self.settings, build_id)
+        total_started = time.perf_counter()
+        timings = {
+            "queue_wait_ms": 0,
+            "worker_startup_ms": 0,
+            "planning_ms": 0,
+            "semantic_alignment_ms": 0,
+            "electrical_validation_ms": 0,
+            "firmware_generation_ms": 0,
+            "platformio_compile_ms": 0,
+            "repair_ms": 0,
+            "wokwi_ms": 0,
+            "enclosure_ms": 0,
+            "artifact_upload_ms": 0,
+            "total_ms": 0,
+        }
+        started_at = datetime.fromisoformat(build.execution_started_at or build.updated_at)
+        timings["queue_wait_ms"] = max(
+            0, round((started_at - datetime.fromisoformat(build.created_at)).total_seconds() * 1000)
+        )
+        if build.dispatch_requested_at:
+            timings["worker_startup_ms"] = max(
+                0,
+                round(
+                    (started_at - datetime.fromisoformat(build.dispatch_requested_at)).total_seconds()
+                    * 1000
+                ),
+            )
+        heartbeat_stop = threading.Event()
+
+        def heartbeat() -> None:
+            while not heartbeat_stop.wait(self.settings.build_heartbeat_seconds):
+                try:
+                    if not self.store.renew_build(build_id, self.settings):
+                        logger.warning("Build lease disappeared during execution", extra={"build_id": build_id})
+                except Exception as exc:
+                    logger.warning(
+                        "Could not renew build lease",
+                        extra={"build_id": build_id, "error": redact_text(str(exc), self.settings)},
+                    )
+
+        heartbeat_thread = threading.Thread(
+            target=heartbeat, daemon=True, name=f"lease-heartbeat-{build_id}"
+        )
+        heartbeat_thread.start()
+        enclosure_executor: ThreadPoolExecutor | None = None
         try:
+            phase_started = time.perf_counter()
             reporter.emit("plan.started", BuildStage.IDEA, "running", "Translating product intent into an engineering brief…", progress=5, build_status=BuildStatus.PLANNING)
             outcome = asyncio.run(plan_product(build.prompt, self.settings))
             build.product_spec = outcome.spec
@@ -44,7 +98,9 @@ class BuildOrchestrator:
                 reporter.emit("build.unsupported", BuildStage.IDEA, "failed", build.error, progress=100, build_status=BuildStatus.UNSUPPORTED_SCOPE)
                 return
             reporter.emit("plan.completed", BuildStage.IDEA, "passed", f"Product brief ready: {outcome.spec.name}", progress=15, build_status=BuildStatus.BUILDING, metadata={"agent_mode": outcome.mode})
+            timings["planning_ms"] = round((time.perf_counter() - phase_started) * 1000)
 
+            phase_started = time.perf_counter()
             build.semantic_alignment = verify_semantic_alignment(
                 build.prompt,
                 build.product_spec,
@@ -63,12 +119,43 @@ class BuildOrchestrator:
                 progress=20,
                 metadata=build.semantic_alignment.evidence,
             )
+            timings["semantic_alignment_ms"] = round(
+                (time.perf_counter() - phase_started) * 1000
+            )
 
+            phase_started = time.perf_counter()
             build.hardware = deterministic_hardware_ir(outcome.spec, build.prompt)
+            build.fingerprints = build_fingerprints(build.hardware, build.prompt)
+            parent = self.store.get(build.parent_build_id) if build.parent_build_id else None
+            reuse = reusable_phases(build.fingerprints, parent.fingerprints) if parent else set()
             component_ids = [component.component_id for component in build.hardware.components]
             reporter.emit("component.selected", BuildStage.COMPONENTS, "passed", "Selected supported components from the verified catalog.", progress=28, metadata={"component_ids": component_ids})
             reporter.emit("electronics.generated", BuildStage.ELECTRONICS, "running", "Hardware IR generated; checking every rail and signal…", progress=36)
-            build.electrical_validation = validate_hardware(build.hardware)
+            if (
+                parent
+                and "hardware" in reuse
+                and parent.electrical_validation
+                and parent.electrical_validation.passed
+            ):
+                build.electrical_validation = parent.electrical_validation.model_copy(deep=True)
+                build.reuse_evidence.append(
+                    {
+                        "phase": "hardware",
+                        "cache_hit": True,
+                        "reused_from_build_id": parent.id,
+                        "artifact_hash": build.fingerprints["hardware_hash"],
+                    }
+                )
+                reporter.emit(
+                    "cache.hardware.hit",
+                    BuildStage.ELECTRONICS,
+                    "passed",
+                    "Reused deterministic electrical validation for identical Hardware IR.",
+                    progress=40,
+                    metadata=build.reuse_evidence[-1],
+                )
+            else:
+                build.electrical_validation = validate_hardware(build.hardware)
             if not build.electrical_validation.passed:
                 build.verification = VerificationReport(electrical_compatibility="failed")
                 workspace.write_json("verification.json", build.verification)
@@ -76,18 +163,60 @@ class BuildOrchestrator:
                 return
             reporter.emit("electronics.verified", BuildStage.ELECTRONICS, "passed", "Voltage, pin capabilities, GPIO allocation, I²C addresses and required connections passed.", progress=44)
             build.artifact_paths.update(workspace.persist_build_inputs(build))
+            timings["electrical_validation_ms"] = round(
+                (time.perf_counter() - phase_started) * 1000
+            )
 
+            # Enclosure generation reads only immutable, validated Hardware IR and writes to its
+            # own directory. It can safely overlap firmware/compile/Wokwi and joins before verify.
+            enclosure_dir = workspace.directory("enclosure")
+            enclosure_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="enclosure")
+
+            def build_enclosure():
+                enclosure_started = time.perf_counter()
+                if (
+                    parent
+                    and "enclosure" in reuse
+                    and parent.enclosure
+                    and parent.enclosure.status == "passed"
+                ):
+                    paths, hashes = workspace.reuse_from(
+                        parent, ("enclosure_base", "enclosure_lid")
+                    )
+                    if len(paths) == 2:
+                        return (
+                            parent.enclosure.model_copy(deep=True),
+                            round((time.perf_counter() - enclosure_started) * 1000),
+                            paths,
+                            {
+                                "phase": "enclosure",
+                                "cache_hit": True,
+                                "reused_from_build_id": parent.id,
+                                "artifact_hash": hashes,
+                            },
+                        )
+                result = generate_enclosure(build.hardware, enclosure_dir)
+                return result, round((time.perf_counter() - enclosure_started) * 1000), {}, None
+
+            enclosure_future = enclosure_executor.submit(build_enclosure)
+
+            phase_started = time.perf_counter()
             firmware_dir = workspace.directory("firmware")
             firmware_files = generate_firmware(build.hardware, firmware_dir)
             build.artifact_paths["firmware_source"] = workspace.relative(firmware_files["source"])
             build.artifact_paths["platformio"] = workspace.relative(firmware_files["platformio"])
             reporter.emit("firmware.generated", BuildStage.FIRMWARE, "passed", "Generated ESP32-S3 firmware from the verified Hardware IR.", progress=52)
+            timings["firmware_generation_ms"] = round(
+                (time.perf_counter() - phase_started) * 1000
+            )
 
             reporter.emit("firmware.compile.started", BuildStage.FIRMWARE, "running", "PlatformIO is compiling the actual firmware…", progress=58, build_status=BuildStatus.TESTING)
+            compile_started = time.perf_counter()
             build.firmware = compile_firmware(self.settings, firmware_dir)
             attempts = 0
             while build.firmware.status == "failed" and attempts < self.settings.max_repair_attempts:
                 attempts += 1
+                repair_started = time.perf_counter()
                 reporter.emit("firmware.compile.failed", BuildStage.FIRMWARE, "failed", f"Compiler rejected the firmware. Repair attempt {attempts}/{self.settings.max_repair_attempts} is starting.", progress=60, build_status=BuildStatus.REPAIRING, metadata={"exit_code": build.firmware.evidence.get("exit_code")})
                 source_path = firmware_files["source"]
                 compiler_output = str(build.firmware.evidence.get("output", ""))
@@ -106,8 +235,12 @@ class BuildOrchestrator:
                     reporter.emit("agent.repair.started", BuildStage.FIRMWARE, "running" if repaired else "failed", "Applied a constrained known-error repair." if repaired else "No safe automatic patch matched the compiler evidence.", progress=62, metadata={"agent": "deterministic-fallback", "attempt": attempts})
                 if not repaired:
                     break
+                timings["repair_ms"] += round((time.perf_counter() - repair_started) * 1000)
                 reporter.emit("firmware.compile.started", BuildStage.FIRMWARE, "running", "Recompiling the repaired firmware with PlatformIO…", progress=64, build_status=BuildStatus.TESTING)
                 build.firmware = compile_firmware(self.settings, firmware_dir)
+            timings["platformio_compile_ms"] = round(
+                (time.perf_counter() - compile_started) * 1000
+            ) - timings["repair_ms"]
 
             if build.firmware.status == "passed":
                 binary = Path(str(build.firmware.evidence.get("firmware_bin")))
@@ -124,18 +257,36 @@ class BuildOrchestrator:
             for key in ("diagram", "config", "scenario"):
                 build.artifact_paths[f"wokwi_{key}"] = workspace.relative(wokwi_files[key])
             reporter.emit("simulation.started", BuildStage.SIMULATION, "running", "Prepared a real Wokwi circuit and automated sensor scenario.", progress=76)
+            phase_started = time.perf_counter()
             build.simulation = run_wokwi(self.settings, simulation_dir, build.firmware.status == "passed")
             for name, artifact_key in (("serial.log", "wokwi_serial_log"), ("simulation-result.json", "wokwi_result")):
                 path = simulation_dir / name
                 if path.exists():
                     build.artifact_paths[artifact_key] = workspace.relative(path)
             reporter.emit(f"simulation.{build.simulation.status}", BuildStage.SIMULATION, build.simulation.status, build.simulation.summary, progress=82, metadata=build.simulation.evidence)
+            timings["wokwi_ms"] = round((time.perf_counter() - phase_started) * 1000)
 
-            reporter.emit("enclosure.started", BuildStage.ENCLOSURE, "running", "Generating a parametric enclosure around board, display, knob and USB clearances…", progress=86, build_status=BuildStatus.BUILDING)
-            enclosure_dir = workspace.directory("enclosure")
-            build.enclosure = generate_enclosure(build.hardware, enclosure_dir)
-            build.artifact_paths["enclosure_base"] = workspace.relative(enclosure_dir / "base.stl")
-            build.artifact_paths["enclosure_lid"] = workspace.relative(enclosure_dir / "lid.stl")
+            reporter.emit("enclosure.started", BuildStage.ENCLOSURE, "running", "Joining the enclosure branch generated in parallel from validated Hardware IR…", progress=86, build_status=BuildStatus.BUILDING)
+            (
+                build.enclosure,
+                timings["enclosure_ms"],
+                reused_enclosure_paths,
+                enclosure_reuse,
+            ) = enclosure_future.result()
+            build.artifact_paths.update(reused_enclosure_paths)
+            if not reused_enclosure_paths:
+                build.artifact_paths["enclosure_base"] = workspace.relative(enclosure_dir / "base.stl")
+                build.artifact_paths["enclosure_lid"] = workspace.relative(enclosure_dir / "lid.stl")
+            if enclosure_reuse:
+                build.reuse_evidence.append(enclosure_reuse)
+                reporter.emit(
+                    "cache.enclosure.hit",
+                    BuildStage.ENCLOSURE,
+                    "passed",
+                    "Reused enclosure artifacts with matching content fingerprints.",
+                    progress=90,
+                    metadata=enclosure_reuse,
+                )
             reporter.emit("enclosure.generated", BuildStage.ENCLOSURE, build.enclosure.status, build.enclosure.summary, progress=92, metadata=build.enclosure.evidence)
 
             build.verification = VerificationReport(
@@ -149,7 +300,11 @@ class BuildOrchestrator:
             build.artifact_paths["verification"] = workspace.relative(verification_path)
             reporter.emit("verification.completed", BuildStage.VERIFICATION, "passed", "Verification report issued. Physical assembly, EMI/EMC and thermals remain explicitly unverified.", progress=97, metadata=build.verification.model_dump(mode="json"))
             if self.settings.artifact_bucket:
+                phase_started = time.perf_counter()
                 uploaded = workspace.publish(self.settings.artifact_bucket)
+                timings["artifact_upload_ms"] = round(
+                    (time.perf_counter() - phase_started) * 1000
+                )
                 reporter.emit(
                     "artifacts.published",
                     BuildStage.VERIFICATION,
@@ -177,11 +332,39 @@ class BuildOrchestrator:
             logger.error("Build failed", extra={"build_id": build_id, "error": build.error})
             reporter.emit("build.failed", build.stage, "failed", "The worker stopped on real evidence; no success state was fabricated.", progress=100, build_status=BuildStatus.FAILED, metadata={"error": build.error})
         finally:
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=2)
+            if enclosure_executor is not None:
+                enclosure_executor.shutdown(wait=False, cancel_futures=True)
+            timings["total_ms"] = round((time.perf_counter() - total_started) * 1000)
+            build.timings_ms = timings
+            try:
+                reporter.emit(
+                    "build.metrics",
+                    build.stage,
+                    "measured",
+                    "Measured queue and hardware pipeline phase timings.",
+                    metadata={"timings_ms": timings},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Could not persist build timings",
+                    extra={"build_id": build_id, "error": redact_text(str(exc), self.settings)},
+                )
             try:
                 self.store.release_build(build_id)
             except Exception as exc:
                 logger.warning(
                     "Could not release build admission lease",
+                    extra={"build_id": build_id, "error": redact_text(str(exc), self.settings)},
+                )
+            try:
+                from .service import dispatch_next_queued
+
+                dispatch_next_queued(self.settings, self.store)
+            except Exception as exc:
+                logger.warning(
+                    "Could not dispatch the next queued build",
                     extra={"build_id": build_id, "error": redact_text(str(exc), self.settings)},
                 )
 

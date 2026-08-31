@@ -15,4 +15,11 @@ describe("Build Room presentation", () => {
     expect(terminalSummary(failed)).toContain("Stopped at Simulation");
     expect(macroStageState(failed, ["simulation"])).toBe("failed");
   });
+  it("treats capacity as a queued product state with position", () => {
+    const queued = build("queued");
+    queued.stage = "idea";
+    queued.progress = 0;
+    queued.queue_position = 2;
+    expect(terminalSummary(queued)).toBe("Waiting for hardware execution slot · Position 2");
+  });
 });

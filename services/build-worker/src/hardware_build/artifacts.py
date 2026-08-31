@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import mimetypes
+import shutil
 from pathlib import Path, PurePosixPath
 
 from google.cloud import storage
@@ -76,6 +78,8 @@ def artifact_files(build_root: Path):
 
 class ArtifactWorkspace:
     def __init__(self, settings: Settings, build_id: str):
+        self.settings = settings
+        self.build_id = build_id
         self.root = settings.build_artifact_dir.resolve() / build_id / "hardware"
         self.root.mkdir(parents=True, exist_ok=True)
 
@@ -112,3 +116,31 @@ class ArtifactWorkspace:
             bucket.blob(blob_name).upload_from_filename(path)
             count += 1
         return count
+
+    def reuse_from(
+        self, parent: Build, artifact_keys: tuple[str, ...]
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Copy immutable parent artifacts into this build and return content hashes."""
+        paths: dict[str, str] = {}
+        hashes: dict[str, str] = {}
+        for key in artifact_keys:
+            stored = parent.artifact_paths.get(key)
+            if not stored:
+                continue
+            relative = stored.removeprefix(f"{parent.id}/")
+            destination = self.settings.build_artifact_dir / self.build_id / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source = self.settings.build_artifact_dir / parent.id / relative
+            if source.is_file():
+                shutil.copy2(source, destination)
+                content = destination.read_bytes()
+            elif self.settings.artifact_bucket:
+                bucket = storage.Client().bucket(self.settings.artifact_bucket)
+                content = bucket.blob(f"{parent.id}/{relative}").download_as_bytes()
+                bucket.blob(f"{self.build_id}/{relative}").upload_from_string(content)
+                destination.write_bytes(content)
+            else:
+                continue
+            paths[key] = f"{self.build_id}/{relative}"
+            hashes[key] = hashlib.sha256(content).hexdigest()
+        return paths, hashes

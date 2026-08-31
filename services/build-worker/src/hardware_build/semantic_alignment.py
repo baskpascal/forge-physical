@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from google import genai
 from google.genai import types
@@ -31,11 +32,6 @@ def verify_semantic_alignment(
             summary="Semantic alignment requires Vertex AI credentials and project configuration.",
         )
 
-    client = genai.Client(
-        vertexai=True,
-        project=settings.google_cloud_project,
-        location=settings.google_cloud_region,
-    )
     spec_text = " ".join(
         [spec.name, spec.intent, spec.description, *spec.features, *spec.constraints]
     )
@@ -43,39 +39,49 @@ def verify_semantic_alignment(
         task_type="SEMANTIC_SIMILARITY",
         output_dimensionality=128,
     )
-    results: list[dict[str, object]] = []
-    try:
-        for model in settings.embedding_model_ids:
-            started = time.perf_counter()
-            prompt_response = client.models.embed_content(
+    def verify_model(model: str) -> dict[str, object]:
+        started = time.perf_counter()
+        client = genai.Client(
+            vertexai=True,
+            project=settings.google_cloud_project,
+            location=settings.google_cloud_region,
+        )
+        try:
+            # One batched request/model replaces two serial network round trips while retaining
+            # separate prompt/spec vectors and per-model evidence.
+            response = client.models.embed_content(
                 model=model,
-                contents=prompt,
+                contents=[prompt, spec_text],
                 config=config,
             )
-            spec_response = client.models.embed_content(
-                model=model,
-                contents=spec_text,
-                config=config,
-            )
-            prompt_vector = prompt_response.embeddings[0].values
-            spec_vector = spec_response.embeddings[0].values
-            results.append(
-                {
-                    "model": model,
-                    "status": "runtime_verified",
-                    "dimensions": len(prompt_vector),
-                    "similarity": round(_cosine(prompt_vector, spec_vector), 4),
-                    "latency_ms": round((time.perf_counter() - started) * 1000),
-                }
-            )
-    except Exception as exc:
+            prompt_vector = response.embeddings[0].values
+            spec_vector = response.embeddings[1].values
+            return {
+                "model": model,
+                "status": "runtime_verified",
+                "dimensions": len(prompt_vector),
+                "similarity": round(_cosine(prompt_vector, spec_vector), 4),
+                "latency_ms": round((time.perf_counter() - started) * 1000),
+            }
+        except Exception as exc:
+            return {
+                "model": model,
+                "status": "unavailable",
+                "latency_ms": round((time.perf_counter() - started) * 1000),
+                "error": redact_text(f"{type(exc).__name__}: {exc}", settings),
+            }
+
+    models = settings.embedding_model_ids
+    with ThreadPoolExecutor(
+        max_workers=max(1, min(settings.embedding_max_concurrency, len(models))),
+        thread_name_prefix="semantic-alignment",
+    ) as executor:
+        results = list(executor.map(verify_model, models))
+    if any(result["status"] != "runtime_verified" for result in results):
         return ToolResult(
             status="unavailable",
             summary="At least one additional Google embedding model could not verify planning alignment.",
-            evidence={
-                "models": results,
-                "error": redact_text(f"{type(exc).__name__}: {exc}", settings),
-            },
+            evidence={"models": results, "vectors_persisted": False},
         )
 
     return ToolResult(

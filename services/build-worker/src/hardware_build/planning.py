@@ -46,9 +46,17 @@ def scope_violation(prompt: str) -> str | None:
 
 
 def supported_update_change(change: str) -> bool:
-    """Return whether an update belongs to the one verified iterative-design slice."""
+    """Accept verified iteration classes; downstream fingerprints decide invalidation."""
     normalized = " ".join(change.strip().split())
-    return scope_violation(normalized) is None and _MOTION_UPDATE_PATTERN.fullmatch(normalized) is not None
+    if not normalized or scope_violation(normalized) is not None:
+        return False
+    if _MOTION_UPDATE_PATTERN.fullmatch(normalized) is not None:
+        return True
+    return bool(
+        re.search(r"\b(?:threshold|above|below)\b[^.\n]{0,30}\b\d+(?:\.\d+)?\s*°?c\b", normalized, re.I)
+        or re.search(r"\b(?:rename|name|label|copy|description|text)\b", normalized, re.I)
+        or re.search(r"\b(?:enclosure|case|housing)\b", normalized, re.I)
+    )
 
 
 def product_has_motion_sensing(spec: ProductSpec | None, prompt: str) -> bool:
