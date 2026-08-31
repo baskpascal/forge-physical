@@ -163,6 +163,10 @@ To reproduce the live flow, submit the prompt through `POST /api/builds` and pol
 and `validation_passed: true`; a lint, compile, scenario, pin, or serial failure ends as
 `needs_review`, never as a completed validation.
 
+The public start endpoint remains credential-free for judges. A Firestore-backed concurrency cap
+and per-client request budget protect the Cloud Run Job queue; a busy demo returns `429` with a
+`Retry-After` header and creates no build. Admission-storage failures return `503` and fail closed.
+
 ## Google Cloud Runtime Verification
 
 Production infrastructure runs in `us-central1`; Gemini inference is independently configured to

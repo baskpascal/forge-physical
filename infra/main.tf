@@ -334,6 +334,22 @@ resource "google_cloud_run_v2_service" "api" {
         name  = "PUBLIC_API_URL"
         value = var.public_api_url
       }
+      env {
+        name  = "BUILD_MAX_CONCURRENT"
+        value = "3"
+      }
+      env {
+        name  = "BUILD_REQUEST_BUDGET"
+        value = "3"
+      }
+      env {
+        name  = "BUILD_REQUEST_WINDOW_SECONDS"
+        value = "3600"
+      }
+      env {
+        name  = "BUILD_LEASE_SECONDS"
+        value = "900"
+      }
     }
   }
 

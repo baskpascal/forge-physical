@@ -23,6 +23,10 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
       });
+      if (response.status === 429) {
+        const retryAfter = response.headers.get("Retry-After");
+        throw new Error(`Build capacity is full${retryAfter ? `; retry in ${retryAfter}s` : ""}`);
+      }
       if (!response.ok) throw new Error(`Build service returned ${response.status}`);
       const build = (await response.json()) as { build_id: string };
       router.push(`/build/${build.build_id}`);

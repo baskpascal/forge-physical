@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     worker_dispatch_url: str | None = None
     cloud_run_job_name: str | None = None
     internal_worker_token: str | None = None
+    build_max_concurrent: int = 3
+    build_request_budget: int = 3
+    build_request_window_seconds: int = 3600
+    build_lease_seconds: int = 900
     platformio_cmd: str = "platformio"
     max_repair_attempts: int = 3
     wokwi_cli_token: str | None = None
