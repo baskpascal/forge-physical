@@ -187,7 +187,7 @@ configuration alone is never reported as runtime verification.
 - [Architecture diagram](docs/architecture.png)
 - [Under-four-minute demo script](docs/demo-script.md)
 - [Devpost submission copy](docs/devpost-submission.md)
-- [Build article draft](docs/build-article.md)
+- [Public build article](https://forge-web-rldj6ghw7q-uc.a.run.app/build-story) and [source](docs/build-article.md)
 - [Social launch copy](docs/social-post.md)
 
 ## Keyless Google Cloud CI/CD

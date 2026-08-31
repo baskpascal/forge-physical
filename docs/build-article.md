@@ -17,7 +17,7 @@ Forge also uses three additional Google embedding models—`gemini-embedding-001
 the generated product specification. The build stores similarity, dimension and latency evidence,
 but never persists the raw vectors.
 
-Hosted Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>. Add the public repository and demo
-video links immediately before publishing.
+Hosted Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>.
+Public repository: <https://github.com/baskpascal/forge-physical>.
 
-Public article: <https://forge-web-rldj6ghw7q-uc.a.run.app/build-story>
+Public article: <https://forge-web-rldj6ghw7q-uc.a.run.app/build-story>.

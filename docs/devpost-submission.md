@@ -38,16 +38,16 @@ The hardest part was making evidence honest. A CLI exit code is not enough to cl
 - API: <https://forge-api-rldj6ghw7q-uc.a.run.app>
 - Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>
 - Build article: <https://forge-web-rldj6ghw7q-uc.a.run.app/build-story>
-- Repository: **currently private; public/judge access pending**
+- Repository: <https://github.com/baskpascal/forge-physical> (public)
 
 ## Testing instructions
 
-Submit: “Create an ESP32 temperature alarm. Use a temperature sensor. Turn the warning LED on when temperature is above 30°C. The design must be testable automatically in Wokwi.” Poll the returned build ID until completion, then inspect agent mode, events, simulation evidence, and artifact links. No judge credential should be required once the Build Room is hosted and repository access is finalized.
+Submit: “Create an ESP32 temperature alarm. Use a temperature sensor. Turn the warning LED on when temperature is above 30°C. The design must be testable automatically in Wokwi.” Poll the returned build ID until completion, then inspect agent mode, events, simulation evidence, and artifact links. No judge credential is required for the hosted Build Room or public repository.
 
 ## Eligibility facts to fill before submission
 
 - Project start date: **confirm with team**
 - Submitter type: **confirm individual or team**
 - Public demo video URL: **pending recording/upload**
-- Build article URL: **pending publication**
+- Build article URL: <https://forge-web-rldj6ghw7q-uc.a.run.app/build-story>
 - Social URL with `#AllThingsAgenticHackathon`: **pending publication**
