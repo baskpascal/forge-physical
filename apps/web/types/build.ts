@@ -54,5 +54,7 @@ export type Build = {
   artifact_paths: Record<string, string>;
   agent_mode: string;
   error?: string;
+  created_at?: string;
+  updated_at?: string;
   events: Event[];
 };

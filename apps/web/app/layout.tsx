@@ -6,8 +6,8 @@ const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
-  title: "Forge Physical — Hardware builds for AI agents",
-  description: "Agent-native hardware build, simulation, and verification infrastructure.",
+  title: "COUP — Infrastructure for agents that build hardware",
+  description: "The hardware execution layer for coding agents building supported low-voltage prototypes.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

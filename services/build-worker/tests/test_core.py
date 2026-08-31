@@ -1,6 +1,6 @@
 import pytest
 
-from hardware_build.agent import _normalize_product_spec_payload
+from hardware_build.agent import PLANNER_INSTRUCTION, _normalize_product_spec_payload
 from hardware_build.catalog import CATALOG
 from hardware_build.planning import (
     deterministic_hardware_ir,
@@ -53,6 +53,11 @@ def test_temperature_alarm_selects_the_minimal_wokwi_verified_hardware():
     assert "temperature alarm" in spec.features
     assert [component.component_id for component in hardware.components] == ["dht22", "led"]
     assert validate_hardware(hardware).passed
+
+
+def test_planner_instruction_forbids_premature_runtime_claims():
+    assert "Never claim that compilation, simulation" in PLANNER_INSTRUCTION
+    assert "only the Wokwi runtime may claim a pass" in PLANNER_INSTRUCTION
 
 
 def test_gpio_conflict_is_rejected():

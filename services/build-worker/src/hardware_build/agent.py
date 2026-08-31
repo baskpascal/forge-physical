@@ -36,6 +36,9 @@ For a temperature alarm request, select the supported ESP32-S3, DHT22, and LED, 
 When the request adds motion sensing, include the "motion sensing" feature so the verified planner
 can add the catalog MPU6050 on the existing I2C bus.
 Never invent a part, a verification result, or a simulation outcome.
+Planning describes intent and configuration only. Never claim that compilation, simulation,
+validation, compatibility, or verification passed. For Wokwi, use prospective wording such as
+"structured for automated validation in Wokwi"; only the Wokwi runtime may claim a pass.
 Return only JSON with: name, intent, description, features, power, constraints, supported, unsupported_reason.
 """
 

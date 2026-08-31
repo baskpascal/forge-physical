@@ -2,45 +2,52 @@
 
 import Link from "next/link";
 import { ProductCanvas } from "@/components/product-canvas";
-import { BuildRoomDetails } from "@/components/build-room-details";
+import { BuildRoomDetails, VerificationPanel, displayVerification, safePlanningCopy } from "@/components/build-room-details";
 import { useBuildStream } from "@/hooks/use-build-stream";
 import { deriveStageState } from "@/lib/build-stage";
-import type { BuildStage } from "@/types/build";
+import type { Build, BuildStage } from "@/types/build";
 
-const stages: Array<{ key: BuildStage; label: string }> = [
-  { key: "idea", label: "Idea" }, { key: "components", label: "Components" },
-  { key: "electronics", label: "Electronics" }, { key: "firmware", label: "Firmware" },
-  { key: "simulation", label: "Simulation" }, { key: "enclosure", label: "Enclosure" },
-  { key: "verification", label: "Verification" },
+const terminal = new Set(["completed", "needs_review", "failed", "unsupported_scope"]);
+const macroStages: Array<{ label: string; stages: BuildStage[] }> = [
+  { label: "PLAN", stages: ["idea", "components", "electronics"] },
+  { label: "BUILD", stages: ["firmware"] },
+  { label: "SIMULATE", stages: ["simulation"] },
+  { label: "PACKAGE", stages: ["enclosure", "verification", "complete"] },
 ];
-function iconFor(state: string) {
-  if (state === "passed") return "✓";
-  if (state === "failed") return "!";
-  if (state === "active") return "●";
-  if (state === "unavailable") return "—";
-  return "○";
+
+export function macroStageState(build: Build, stages: BuildStage[]) {
+  const states = stages.map((stage) => deriveStageState(build, stage));
+  if (states.includes("failed")) return "failed"; if (states.includes("unavailable")) return "unavailable"; if (states.includes("not_run")) return "not_run";
+  if (states.includes("active")) return "active"; if (states.every((state) => state === "passed")) return "passed";
+  return "pending";
 }
+function duration(build: Build) {
+  const start = build.created_at ?? build.events[0]?.created_at; const end = build.updated_at ?? build.events.at(-1)?.created_at;
+  if (!start || !end) return null; const seconds = Math.max(0, Math.round((Date.parse(end) - Date.parse(start)) / 1000));
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+export function terminalSummary(build: Build) {
+  const elapsed = duration(build); if (!terminal.has(build.status)) return `${build.progress}% · ${build.stage.replaceAll("_", " ")}`;
+  if (build.status === "completed") return elapsed ? `Completed in ${elapsed}` : "Completed";
+  const stop = build.simulation?.status === "failed" || build.simulation?.status === "unavailable" ? "Simulation" : build.stage === "complete" ? "Verification" : build.stage;
+  return `Stopped at ${String(stop).replaceAll("_", " ")} ${elapsed ? `· ${elapsed}` : ""}`.trim();
+}
+function icon(state: string) { return state === "passed" ? "✓" : state === "failed" ? "✕" : ["unavailable", "not_run"].includes(state) ? "—" : state === "active" ? "●" : "○"; }
 
 export function BuildRoom({ buildId }: { buildId: string }) {
   const { build, error, transport } = useBuildStream(buildId);
-  if (!build) return <main className="room-shell loading-room"><div className="room-topline"><Link href="/">FORGE</Link><span>{error ?? "CONNECTING TO BUILD"}</span></div><div className="loading-canvas" /></main>;
+  if (!build) return <main className="room-shell loading-room"><div className="room-topline"><Link href="/">COUP</Link><span>{error ?? "CONNECTING TO BUILD"}</span></div><div className="loading-canvas" /></main>;
   const title = build.product_spec?.name ?? "Untitled physical product";
-  const activity = build.events.at(-1)?.message ?? "Worker is accepting the build…";
-  return (
-    <main className="room-shell">
-      <div className="room-topline"><Link href="/"><span className="brand-mark mini"><i /><i /><i /></span>FORGE PHYSICAL</Link><div><span className={`live-dot ${transport}`} />{transport === "firestore" ? "FIRESTORE LIVE" : "CLOUD API STREAM"}<b>BUILD {build.id.toUpperCase()}</b></div></div>
-      <header className="build-header"><div><p className="eyebrow">PRODUCT / VERSION {build.version}</p><h1>{title}</h1></div><div className={`status-badge ${build.status}`}><i />{build.status.replaceAll("_", " ")}</div></header>
-      <section className="workbench">
-        <ProductCanvas build={build} />
-        <aside className="build-rail">
-          <div className="rail-heading"><p>BUILD</p><span>{build.progress}%</span></div>
-          <div className="progress-track"><i style={{ width: `${build.progress}%` }} /></div>
-          <ol className="stage-list">{stages.map((stage) => { const state = deriveStageState(build, stage.key); return <li className={state} key={stage.key}><span>{iconFor(state)}</span><p>{stage.label}</p>{state === "active" && <small>{build.status === "repairing" ? "REPAIRING" : "IN PROGRESS"}</small>}{state === "unavailable" && <small>UNAVAILABLE</small>}</li>; })}</ol>
-          <div className="rail-agent"><div className="agent-title"><span>AGENT</span><b>{build.agent_mode}</b></div><p>{activity}</p><div className="agent-pulse"><i /><i /><i /></div></div>
-        </aside>
-      </section>
-      <BuildRoomDetails build={build} />
-      <footer className="room-footer"><span>{build.product_spec?.description ?? build.prompt}</span><span>Physical assembly is never implied by digital verification.</span></footer>
-    </main>
-  );
+  return <main className="room-shell">
+    <div className="room-topline"><Link href="/">COUP <span>/ Build Room</span></Link><div><span className={`live-dot ${transport}`} />{transport === "firestore" ? "FIRESTORE LIVE" : "CLOUD API STREAM"}<b>{build.id}</b></div></div>
+    <header className="build-header"><div><p className="eyebrow">SUPPORTED LOW-VOLTAGE PROTOTYPE</p><h1>{title}</h1><p className="build-result-line">{terminalSummary(build)}</p></div><div className={`status-badge ${build.status}`}><i />{build.status.replaceAll("_", " ")}</div></header>
+    <section className="build-overview">
+      <ProductCanvas build={build} />
+      <aside className="receipt-card"><VerificationPanel report={displayVerification(build)} /></aside>
+    </section>
+    <ol className="macro-flow" aria-label="Build phases">{macroStages.map((macro) => { const state = macroStageState(build, macro.stages); return <li className={state} key={macro.label}><span>{icon(state)}</span><b>{macro.label}</b><small>{state.replaceAll("_", " ")}</small></li>; })}</ol>
+    <p className="overview-copy">{safePlanningCopy(build.product_spec?.description ?? build.prompt)}</p>
+    <BuildRoomDetails build={build} />
+    <footer className="room-footer"><span>COUP — Infrastructure for agents that build hardware.</span><span>Physical assembly is never implied by digital verification.</span></footer>
+  </main>;
 }
