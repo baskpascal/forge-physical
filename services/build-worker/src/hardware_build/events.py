@@ -4,14 +4,15 @@ from uuid import uuid4
 
 from .models import Build, BuildEvent, BuildStage, BuildStatus
 from .security import redact, redact_text
-from .settings import get_settings
+from .settings import Settings
 from .storage import BuildStore
 
 
 class BuildReporter:
-    def __init__(self, store: BuildStore, build: Build):
+    def __init__(self, store: BuildStore, build: Build, settings: Settings):
         self.store = store
         self.build = build
+        self.settings = settings
 
     def emit(
         self,
@@ -24,7 +25,6 @@ class BuildReporter:
         build_status: BuildStatus | None = None,
         metadata: dict | None = None,
     ) -> None:
-        settings = get_settings()
         self.build.stage = stage
         if progress is not None:
             self.build.progress = progress
@@ -38,7 +38,7 @@ class BuildReporter:
                 type=event_type,
                 stage=stage,
                 status=status,
-                message=redact_text(message, settings),
-                metadata=redact(metadata or {}, settings),
+                message=redact_text(message, self.settings),
+                metadata=redact(metadata or {}, self.settings),
             ),
         )
