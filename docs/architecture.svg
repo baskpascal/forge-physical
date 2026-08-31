@@ -11,7 +11,7 @@
     </style>
   </defs>
   <rect width="1600" height="1000" fill="url(#bg)"/>
-  <text x="70" y="70" class="title">Coup / Forge — Evidence-first hardware generation</text>
+  <text x="70" y="70" class="title">COUP — Hardware execution infrastructure for coding agents</text>
   <text x="70" y="105" class="sub">Production architecture · us-central1 infrastructure · Vertex AI inference in us</text>
 
   <rect x="60" y="165" width="230" height="120" class="box"/><text x="85" y="205" class="h">User / coding agent</text><text x="85" y="238" class="p">Product request</text><text x="85" y="263" class="small">Streamable HTTP MCP</text>

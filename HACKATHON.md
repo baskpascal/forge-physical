@@ -1,4 +1,4 @@
-# All Things Agentic — demo checklist
+# COUP — All Things Agentic demo checklist
 
 ## Under-four-minute story
 

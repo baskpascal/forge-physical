@@ -26,4 +26,10 @@ describe("deriveStageState", () => {
     expect(deriveStageState(build, "simulation")).toBe("unavailable");
     expect(deriveStageState(build, "enclosure")).toBe("passed");
   });
+
+  it("keeps not_run distinct from unavailable", () => {
+    const build = completedBuild();
+    build.simulation = { status: "not_run", summary: "not attempted", evidence: {} };
+    expect(deriveStageState(build, "simulation")).toBe("not_run");
+  });
 });

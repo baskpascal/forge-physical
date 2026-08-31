@@ -11,7 +11,7 @@ const ranks: Record<BuildStage, number> = {
   complete: 7,
 };
 
-export type StageState = "passed" | "active" | "pending" | "failed" | "unavailable";
+export type StageState = "passed" | "active" | "pending" | "failed" | "unavailable" | "not_run";
 
 export function deriveStageState(build: Build, stage: BuildStage): StageState {
   const current = ranks[build.stage];
@@ -23,7 +23,8 @@ export function deriveStageState(build: Build, stage: BuildStage): StageState {
       : stage === "enclosure"
         ? build.enclosure?.status
         : undefined;
-  if (toolStatus === "unavailable" || toolStatus === "not_run") return "unavailable";
+  if (toolStatus === "unavailable") return "unavailable";
+  if (toolStatus === "not_run") return "not_run";
   if (toolStatus === "failed") return "failed";
   if (build.status === "failed" && current === target) return "failed";
   if (current > target || build.stage === "complete") return "passed";

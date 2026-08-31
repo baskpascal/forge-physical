@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { BuildRoomDetails, RepairProof, nextTabIndex } from "./build-room-details";
+import { BuildRoomDetails, RepairProof, nextTabIndex, safePlanningCopy } from "./build-room-details";
 import type { Build } from "@/types/build";
 
 function queuedBuild(): Build {
@@ -45,10 +45,15 @@ describe("BuildRoomDetails", () => {
     ];
 
     const html = renderToStaticMarkup(<RepairProof events={build.events} />);
-    expect(html).toContain("BOUNDED REPAIR PROOF");
-    expect(html).toContain("COMPILE FAILED");
-    expect(html).toContain("EngineeringAgent");
-    expect(html).toContain("RECOMPILE");
-    expect(html).toContain("PASS");
+    expect(html).toContain("ENGINEERING AGENT");
+    expect(html).toContain("Compiler failure detected");
+    expect(html).toContain("1 constrained repair applied");
+    expect(html).toContain("Recompile → Passed");
+  });
+
+  it("removes premature Wokwi pass language from planner copy", () => {
+    expect(safePlanningCopy("The design is fully compatible with Wokwi simulation for automated testing."))
+      .toContain("structured for automated validation in Wokwi");
+    expect(safePlanningCopy("Fully testable in Wokwi simulation")).not.toMatch(/fully testable|compatible/i);
   });
 });

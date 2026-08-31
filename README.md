@@ -1,19 +1,19 @@
-# AI agents can already build software. Now they can build physical products.
+# COUP
 
-Forge Physical is agent-native infrastructure for building low-voltage electronic prototypes. A
-coding agent calls one remote MCP tool, gets a Build Room URL immediately, and the backend takes over:
+**Infrastructure for agents that build hardware.**
+
+AI coding agents already have infrastructure for building and deploying software. COUP gives those
+agents an execution layer for supported low-voltage physical prototypes. A coding agent calls one
+remote MCP tool, gets a Build Room URL immediately, and COUP takes over:
 
 ```text
 Codex / Claude Code / Gemini CLI
-                ↓  Streamable HTTP MCP
-        Product intent + constraints
+                ↓ MCP
+              COUP
                 ↓
-   Google ADK + Gemini build workflow
+       Plan → Build → Simulate → Package
                 ↓
-Hardware IR → electrical checks → firmware → PlatformIO → repair loop
-                ↓                         ↓
-        Wokwi scenario              parametric STL
-                └──────────→ verification report
+      Evidence-backed physical build
 ```
 
 This is not a chatbot, EDA suite, CAD replacement, or simulated landing page. Every green state in the
@@ -42,7 +42,7 @@ completed hardware-validation claim.
 
 ## Architecture
 
-![Forge Physical production architecture](docs/architecture.png)
+![COUP production architecture](docs/architecture.png)
 
 | Surface | Implementation | Responsibility |
 | --- | --- | --- |
@@ -225,7 +225,7 @@ budget; it always restores the worker Job configuration.
 
 ## Intentional limits
 
-Forge Physical accepts only supported low-voltage prototypes. It rejects mains/high voltage,
+COUP accepts only supported low-voltage prototypes. It rejects mains/high voltage,
 medical, safety-critical, weapons, and high-power requests. The core catalog is deliberately limited
 to ESP32-S3, SSD1306, DHT22, KY-040, button, LED, and MPU6050. There is no arbitrary PCB routing,
 generic CAD, billing, auth, marketplace, or fake simulation.
