@@ -27,6 +27,15 @@ def test_gemini_power_object_is_normalized_without_using_a_fixture():
     assert payload["features"] == ["temperature alarm"]
 
 
+def test_gemini_descriptive_power_string_is_normalized():
+    payload = _normalize_product_spec_payload(
+        {"power": "3.3V DC regulated from USB 5V input", "features": ["temperature alarm"]}
+    )
+
+    assert payload["power"] == "usb"
+    assert payload["features"] == ["temperature alarm"]
+
+
 def test_demo_hardware_ir_passes_deterministic_validation():
     spec = deterministic_product_spec("Build a desk monitor with OLED, rotary knob, temperature sensor and USB power")
     hardware = deterministic_hardware_ir(spec)
