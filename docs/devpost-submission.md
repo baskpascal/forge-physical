@@ -42,11 +42,11 @@ The hardest part was making evidence honest. A CLI exit code is not enough to cl
 
 ## Testing instructions
 
-Submit: “Create an ESP32 temperature alarm. Use a temperature sensor. Turn the warning LED on when temperature is above 30°C. The design must be testable automatically in Wokwi.” Poll the returned build ID until completion, then inspect agent mode, events, simulation evidence, and artifact links. No judge credential is required for the hosted Build Room or public repository.
+Submit: “Create an ESP32 temperature alarm. Use a temperature sensor. Turn the warning LED on when temperature is above 30°C. The design must be testable automatically in Wokwi.” Poll the returned build ID until a terminal state, then inspect agent mode, events, simulation evidence, and artifact links. No judge credential is required for the hosted Build Room or public repository. If capacity is temporarily full, the API returns `429` with a `Retry-After` delay and creates no build.
 
 ## Eligibility facts to fill before submission
 
-- Project start date: **confirm with team**
+- Project start date: **August 30, 2026** (first repository commit: `e732a86`)
 - Submitter type: **confirm individual or team**
 - Public demo video URL: **pending recording/upload**
 - Build article URL: <https://forge-web-rldj6ghw7q-uc.a.run.app/build-story>

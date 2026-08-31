@@ -49,7 +49,7 @@ jobs:
             --config=cloudbuild.yaml \
             --substitutions="_REGION=${{ vars.GCP_REGION }},_IMAGE_TAG=${GITHUB_SHA}")"
           echo "Cloud Build: ${build_id}"
-          for attempt in $(seq 1 90); do
+          for attempt in $(seq 1 180); do
             status="$(gcloud builds describe "${build_id}" \
               --project="${{ vars.GCP_PROJECT_ID }}" \
               --format='value(status)' 2>/dev/null || true)"
@@ -60,7 +60,7 @@ jobs:
                 exit 1
                 ;;
             esac
-            echo "Cloud Build ${build_id}: ${status:-status lookup throttled} (attempt ${attempt}/90)"
+            echo "Cloud Build ${build_id}: ${status:-status lookup throttled} (attempt ${attempt}/180)"
             sleep 10
           done
           echo "Timed out waiting for Cloud Build ${build_id}" >&2

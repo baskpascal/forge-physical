@@ -8,6 +8,10 @@ substitutions:
   _IMAGE_TAG: manual
   _PUBLIC_BUILD_URL: https://forge-web-rldj6ghw7q-uc.a.run.app
   _PUBLIC_API_URL: https://forge-api-rldj6ghw7q-uc.a.run.app
+  _BUILD_MAX_CONCURRENT: '3'
+  _BUILD_REQUEST_BUDGET: '3'
+  _BUILD_REQUEST_WINDOW_SECONDS: '3600'
+  _BUILD_LEASE_SECONDS: '900'
 
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -58,7 +62,7 @@ steps:
       - '--region=${_REGION}'
       - '--service-account=forge-api@$PROJECT_ID.iam.gserviceaccount.com'
       - '--allow-unauthenticated'
-      - '--set-env-vars=BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL},PUBLIC_BUILD_URL=${_PUBLIC_BUILD_URL},PUBLIC_API_URL=${_PUBLIC_API_URL},CLOUD_RUN_JOB_NAME=projects/$PROJECT_ID/locations/${_REGION}/jobs/${_WORKER_JOB}'
+      - '--set-env-vars=BUILD_STORE=firestore,ARTIFACT_BUCKET=$PROJECT_ID-forge-artifacts,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_REGION=${_REGION},VERTEX_LOCATION=us,GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=${_GEMINI_MODEL},PUBLIC_BUILD_URL=${_PUBLIC_BUILD_URL},PUBLIC_API_URL=${_PUBLIC_API_URL},CLOUD_RUN_JOB_NAME=projects/$PROJECT_ID/locations/${_REGION}/jobs/${_WORKER_JOB},BUILD_MAX_CONCURRENT=${_BUILD_MAX_CONCURRENT},BUILD_REQUEST_BUDGET=${_BUILD_REQUEST_BUDGET},BUILD_REQUEST_WINDOW_SECONDS=${_BUILD_REQUEST_WINDOW_SECONDS},BUILD_LEASE_SECONDS=${_BUILD_LEASE_SECONDS}'
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
     args:
