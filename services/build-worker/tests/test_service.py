@@ -120,6 +120,8 @@ def test_update_rejects_unsupported_change_without_mutating_parent(tmp_path: Pat
         )
     except ValueError as exc:
         assert "Unsupported prototype update" in str(exc)
+        assert "temperature thresholds" in str(exc)
+        assert "enclosure changes" in str(exc)
     else:
         raise AssertionError("Unsupported updates must fail explicitly")
 

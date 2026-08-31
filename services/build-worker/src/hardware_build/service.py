@@ -16,6 +16,9 @@ from .settings import Settings, get_settings
 from .storage import BuildStore, get_store
 
 _executor = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("LOCAL_WORKER_THREADS", "2"))), thread_name_prefix="forge-build")
+SUPPORTED_UPDATE_SUMMARY = (
+    "motion/orientation sensing, temperature thresholds, naming/text, and enclosure changes"
+)
 
 
 class DispatchNotAccepted(RuntimeError):
@@ -173,8 +176,7 @@ def update_build(build_id: str, change: str, *, dispatch: bool = True, store: Bu
     parent = store.get(build_id)
     if not supported_update_change(change):
         raise ValueError(
-            "Unsupported prototype update. Supported iterations include motion/orientation "
-            "sensing, temperature thresholds, naming/text, and enclosure changes."
+            f"Unsupported prototype update. Supported iterations include {SUPPORTED_UPDATE_SUMMARY}."
         )
     requests_motion = product_has_motion_sensing(None, change)
     has_motion_hardware = bool(
