@@ -23,10 +23,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.4,<9", "pytest-cov>=6.2,<7", "ruff>=0.12,<1"]
 tooling = ["platformio>=6.1,<7"]
+drone = ["mavsdk==3.17.2"]
 
 [project.scripts]
 hardware = "hardware_build.cli:main"
 hardware-build-api = "hardware_build.api:run"
+coup = "hardware_build.drone_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hardware_build"]
