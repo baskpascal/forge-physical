@@ -1,4 +1,6 @@
-# Devpost Submission Copy
+# Historical record: Devpost Submission Copy
+
+> Preserved for provenance of the competition submission. The current product documentation is in the repository root and `docs/`.
 
 ## Project
 

@@ -1,4 +1,4 @@
-# Submission Evidence Index
+# Verification Evidence Index
 
 Every production claim below must remain tied to a reproducible check or immutable build artifact.
 
@@ -29,7 +29,7 @@ Build [`061bf9dfcf33`](https://forge-web-rldj6ghw7q-uc.a.run.app/build/061bf9dfc
 | Secret handling | `settings.py`, `security.py` tests | Secret Manager reference on worker | Secret values must never be attached to evidence |
 | Failure handling | orchestrator/service tests | Failed/unavailable simulations remain distinct from `not_run` and `not_verified` | Cloud platform interruptions are visible separately |
 
-## Judge quick path
+## Reproduce a build
 
 1. Open the public Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>.
 2. Submit the ESP32 temperature-alarm prompt through the public API or MCP `prototype_start`.

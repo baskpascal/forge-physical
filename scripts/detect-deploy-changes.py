@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 DOC_ONLY_ROOTS = ("docs/", ".github/ISSUE_TEMPLATE/")
-DOC_ONLY_FILES = {"README.md", "HACKATHON.md", "LICENSE"}
+DOC_ONLY_FILES = {"README.md", "LICENSE"}
 NO_RUNTIME_ROOTS = ("services/build-worker/tests/",)
 NO_RUNTIME_FILES = {
     ".gitignore",

@@ -18,7 +18,7 @@
   <rect x="355" y="165" width="260" height="120" class="box"/><text x="380" y="205" class="h">Cloud Run API</text><text x="380" y="238" class="p">FastAPI + prototype_start</text><text x="380" y="263" class="small">Returns build ID immediately</text>
   <rect x="685" y="165" width="260" height="120" class="evidence" rx="16"/><text x="710" y="205" class="h">Firestore</text><text x="710" y="238" class="p">Build + immutable versions</text><text x="710" y="263" class="small">State and ordered event stream</text>
   <rect x="1015" y="165" width="290" height="120" class="boundary" rx="16"/><text x="1040" y="205" class="h">Cloud Run Job</text><text x="1040" y="238" class="p">forge-worker async boundary</text><text x="1040" y="263" class="small">Dedicated service account</text>
-  <rect x="1370" y="165" width="170" height="120" class="box"/><text x="1392" y="205" class="h">Build Room</text><text x="1392" y="238" class="p">Live progress</text><text x="1392" y="263" class="small">Judge surface</text>
+  <rect x="1370" y="165" width="170" height="120" class="box"/><text x="1392" y="205" class="h">Build Room</text><text x="1392" y="238" class="p">Live progress</text><text x="1392" y="263" class="small">Evidence surface</text>
   <path d="M290 225H355" class="line"/><path d="M615 225H685" class="line"/><path d="M945 225H1015" class="line"/><path d="M1305 225H1370" class="line dash"/>
 
   <rect x="80" y="385" width="270" height="130" class="tool" rx="16"/><text x="105" y="425" class="h">Google ADK</text><text x="105" y="458" class="p">ProductPlanner agent</text><text x="105" y="485" class="small">Gemini 3.5 Flash · Vertex AI</text><text x="105" y="505" class="small">3 embedding models · drift proof</text>
@@ -38,5 +38,5 @@
   <text x="655" y="548" class="small" fill="#fbbf24">bounded compiler repair loop via EngineeringAgent</text>
   <path d="M690 620V565H815V285" class="line dash"/><text x="700" y="590" class="small">artifact refs + result state</text>
   <text x="70" y="900" class="sub">Legend: green = runtime evidence/state · purple = execution/security boundary · blue = product/tool flow</text>
-  <text x="70" y="940" class="small">Artifact generated for the All Things Agentic Hackathon submission. Physical safety categories remain explicitly unverified.</text>
+  <text x="70" y="940" class="small">Physical safety categories remain explicitly unverified.</text>
 </svg>

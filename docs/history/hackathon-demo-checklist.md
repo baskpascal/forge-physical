@@ -1,4 +1,6 @@
-# COUP — All Things Agentic demo checklist
+# Historical record: COUP — All Things Agentic demo checklist
+
+> Preserved as the submitted-demo record. The `hackathon-submission-2026` Git tag identifies the corresponding repository baseline. This checklist is not current product documentation.
 
 ## Under-four-minute story
 
