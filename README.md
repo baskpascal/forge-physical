@@ -57,19 +57,17 @@ py -3.13 -m venv .venv
 
 py -3.13 -m venv .platformio-venv
 .\.platformio-venv\Scripts\python.exe -m pip install platformio==6.1.19
-$env:PLATFORMIO_CMD=(Resolve-Path '.\.platformio-venv\Scripts\platformio.exe').Path
 ```
 
 Run the backend and web application in separate terminals:
 
 ```powershell
-. .\.venv\Scripts\Activate.ps1
 npm run backend:dev
 
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). To exercise the backend vertical slice, run `npm run smoke`. The first PlatformIO invocation downloads the ESP32 toolchain; later runs reuse the cache.
+The backend scripts automatically use the repository `.venv` and, when available, the local PlatformIO virtual environment. Open [http://localhost:3000](http://localhost:3000). To exercise the backend vertical slice, run `npm run smoke`. The first PlatformIO invocation downloads the ESP32 toolchain; later runs reuse the cache.
 
 ## Configuration
 

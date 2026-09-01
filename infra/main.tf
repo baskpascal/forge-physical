@@ -232,10 +232,6 @@ resource "google_cloud_run_v2_job" "worker" {
           value = "gemini-3.5-flash"
         }
         env {
-          name  = "EMBEDDING_MODELS"
-          value = "gemini-embedding-001;text-embedding-005;text-multilingual-embedding-002"
-        }
-        env {
           name  = "BUILD_LEASE_SECONDS"
           value = "300"
         }

@@ -24,8 +24,8 @@ export default function BuildStory() {
         <h2>Verification must mean behavior</h2>
         <p>A simulator exit code is not enough. The golden scenario changes a DHT22 from 25°C to 35°C, asserts the ESP32 alarm GPIO low then high, and waits for <code>COUP_READY</code>, <code>TEMP_NORMAL</code>, <code>TEMP_ALERT</code> and <code>COUP_TEST_PASS</code>. Any lint, compile, simulation, pin or serial failure becomes <code>needs_review</code>.</p>
 
-        <h2>Four Google models, distinct responsibilities</h2>
-        <p>Gemini 3.5 Flash remains the ProductPlanner. Three additional Vertex AI models—<code>gemini-embedding-001</code>, <code>text-embedding-005</code> and <code>text-multilingual-embedding-002</code>—compare the request with the generated specification to expose semantic drift. COUP persists similarity, dimension and latency evidence, never the raw vectors.</p>
+        <h2>Optional semantic-alignment telemetry</h2>
+        <p>Gemini 3.5 Flash remains the ProductPlanner. When enabled, embedding models compare the request with the generated specification to measure semantic drift. This telemetry is disabled by default until a product decision consumes its result; COUP never persists raw vectors.</p>
 
         <h2>Production-minded by construction</h2>
         <p>Cloud Run uses dedicated API, worker and web identities. Secret Manager injects Wokwi credentials only into the worker. GitHub Actions authenticates through OIDC and Workload Identity Federation, with no service-account JSON key. Terraform remains the source of truth.</p>

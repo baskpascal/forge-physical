@@ -25,7 +25,7 @@ def verify_semantic_alignment(
     spec: ProductSpec,
     settings: Settings,
 ) -> ToolResult:
-    """Use three additional Google embedding models to detect planning drift."""
+    """Measure prompt-to-spec drift with explicitly configured embedding models."""
     if not settings.gemini_configured:
         return ToolResult(
             status="unavailable",
@@ -75,8 +75,8 @@ def verify_semantic_alignment(
     models = settings.embedding_model_ids
     if not models:
         return ToolResult(
-            status="unavailable",
-            summary="Semantic alignment has no configured embedding models.",
+            status="not_run",
+            summary="Semantic alignment is disabled because no embedding models are configured.",
             evidence={"models": [], "vectors_persisted": False},
         )
     with ThreadPoolExecutor(

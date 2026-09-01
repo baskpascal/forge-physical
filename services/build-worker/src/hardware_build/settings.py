@@ -18,9 +18,9 @@ class Settings(BaseSettings):
     vertex_location: str = "us"
     google_genai_use_vertexai: bool = True
     gemini_model: str = "gemini-3.5-flash"
-    embedding_models: str = (
-        "gemini-embedding-001;text-embedding-005;text-multilingual-embedding-002"
-    )
+    # Semantic alignment is optional telemetry. Enable explicitly with EMBEDDING_MODELS
+    # after defining how its result influences product decisions.
+    embedding_models: str = ""
     build_store: str = "local"
     build_data_dir: Path = Path("./data")
     build_artifact_dir: Path = Path("./artifacts")
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     internal_worker_token: str | None = None
     build_max_concurrent: int = 3
     # Capacity is a queue concern; this separate per-client budget is only abuse protection.
-    # Twenty requests/hour supports a normal iterative demo while bounding public cost.
+    # Twenty requests/hour supports normal iterative work while bounding public cost.
     build_request_budget: int = 20
     build_request_window_seconds: int = 3600
     build_lease_seconds: int = 300

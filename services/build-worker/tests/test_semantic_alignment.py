@@ -6,6 +6,8 @@ from hardware_build.models import ProductSpec
 from hardware_build.semantic_alignment import verify_semantic_alignment
 from hardware_build.settings import Settings
 
+EMBEDDING_MODELS = "gemini-embedding-001;text-embedding-005;text-multilingual-embedding-002"
+
 
 def test_three_google_models_verify_prompt_to_spec_alignment(monkeypatch):
     calls: list[str] = []
@@ -35,6 +37,7 @@ def test_three_google_models_verify_prompt_to_spec_alignment(monkeypatch):
     settings = Settings(
         google_cloud_project="test-project",
         google_genai_use_vertexai=True,
+        embedding_models=EMBEDDING_MODELS,
     )
 
     result = verify_semantic_alignment("Create an ESP32 temperature alarm", spec, settings)
@@ -78,14 +81,12 @@ def test_embedding_models_execute_concurrently_and_keep_individual_evidence(monk
     result = verify_semantic_alignment(
         "temperature alarm",
         ProductSpec(intent="temperature alarm", description="alarm", features=["alarm"]),
-        Settings(google_cloud_project="test-project"),
+        Settings(google_cloud_project="test-project", embedding_models=EMBEDDING_MODELS),
     )
 
     assert result.status == "passed"
     assert maximum > 1
-    assert [entry["model"] for entry in result.evidence["models"]] == list(
-        Settings().embedding_model_ids
-    )
+    assert [entry["model"] for entry in result.evidence["models"]] == EMBEDDING_MODELS.split(";")
 
 
 def test_semantic_alignment_requires_at_least_one_model():
@@ -102,5 +103,5 @@ def test_semantic_alignment_requires_at_least_one_model():
 
     result = verify_semantic_alignment("Create an alarm", spec, settings)
 
-    assert result.status == "unavailable"
+    assert result.status == "not_run"
     assert result.evidence["models"] == []
