@@ -43,11 +43,9 @@ def test_three_google_models_verify_prompt_to_spec_alignment(monkeypatch):
     result = verify_semantic_alignment("Create an ESP32 temperature alarm", spec, settings)
 
     assert result.status == "passed"
-    assert calls == [
-        "gemini-embedding-001",
-        "text-embedding-005",
-        "text-multilingual-embedding-002",
-    ]
+    # Requests execute concurrently; invocation order is deliberately not a
+    # contract. Evidence below is asserted in configured order.
+    assert sorted(calls) == sorted(EMBEDDING_MODELS.split(";"))
     assert [entry["status"] for entry in result.evidence["models"]] == [
         "runtime_verified",
         "runtime_verified",
