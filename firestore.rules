@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Hackathon MVP: build rooms are shareable by URL. All writes stay server-side.
+    // Build rooms are shareable by URL. All writes stay server-side.
     match /builds/{buildId} {
       allow read: if true;
       allow write: if false;
