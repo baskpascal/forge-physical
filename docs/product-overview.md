@@ -1,7 +1,5 @@
 # From coding agents to verified physical prototypes
 
-> This article was created for the purpose of entering the All Things Agentic Hackathon.
-
 Software agents can edit code, run tests and deploy services because their work has machine-readable feedback. Physical-product development usually breaks that loop: component selection, wiring, firmware, simulation and mechanical artifacts live in separate tools, and a plausible answer can be mistaken for a verified one.
 
 COUP closes one narrow but real loop. A coding agent asks for a supported low-voltage prototype through MCP. A Cloud Run API creates an immutable build record and starts a Cloud Run Job. Google ADK and Gemini 3.5 Flash translate the request into a constrained product specification. Deterministic code—not the model—checks the supported catalog, voltage, pins, buses and required connections. The worker generates Arduino firmware and asks PlatformIO for an actual ESP32 binary.
@@ -12,7 +10,7 @@ Firestore is the source of truth for the build and its event stream. Cloud Stora
 
 The result is not a claim that virtual validation replaces physical testing. Assembly, EMI/EMC and thermals remain explicitly `not_verified`. The useful leap is that an agent can now own a complete, inspectable digital prototype loop—request, plan, generate, compile, simulate, validate and publish—on production cloud infrastructure.
 
-Forge also uses three additional Google embedding models—`gemini-embedding-001`,
+COUP also uses three additional Google embedding models—`gemini-embedding-001`,
 `text-embedding-005`, and `text-multilingual-embedding-002`—to compare the original request with
 the generated product specification. The build stores similarity, dimension and latency evidence,
 but never persists the raw vectors.

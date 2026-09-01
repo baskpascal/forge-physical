@@ -26,6 +26,7 @@ artifacts/
 .pio/
 .platformio/
 .platformio-venv/
+.coup-cache/
 *.log
 *.pem
 *.key

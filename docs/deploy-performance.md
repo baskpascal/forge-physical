@@ -133,9 +133,8 @@ thin worker application layer.
 `E2_HIGHCPU_8` increases compute used while Cloud Build is active, but API, worker, and web
 builds can use the additional CPU concurrently. The measured cached API and web phase
 reductions were 24% and 39%, respectively. A controlled same-source, same-cache A/B run is
-still needed before attributing the whole reduction to machine size. For the hackathon the
-wall-clock reduction is worth the bounded build-time compute; post-hackathon, compare total
-vCPU-seconds and cost using identical warm-cache builds before retaining it permanently.
+still needed before attributing the whole reduction to machine size. Compare total vCPU-seconds
+and cost using identical warm-cache builds before retaining this machine class permanently.
 
 ## Reproduce the benchmark
 

@@ -170,6 +170,15 @@ class UpdateBuildRequest(BaseModel):
     change: str = Field(min_length=3, max_length=1000)
 
 
+class DroneCreateRequest(BaseModel):
+    project: str = Field(min_length=1, max_length=63)
+    intent: str = Field(min_length=8, max_length=2000)
+
+
+class DroneChangeRequest(BaseModel):
+    change: str = Field(min_length=3, max_length=1000)
+
+
 class StartBuildResponse(BaseModel):
     build_id: str
     status: BuildStatus

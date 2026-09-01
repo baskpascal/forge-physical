@@ -1,4 +1,4 @@
-# Submission Evidence Index
+# Verification Evidence Index
 
 Every production claim below must remain tied to a reproducible check or immutable build artifact.
 
@@ -7,7 +7,7 @@ Every production claim below must remain tied to a reproducible check or immutab
 Build [`061bf9dfcf33`](https://forge-web-rldj6ghw7q-uc.a.run.app/build/061bf9dfcf33) was started through the public API on 2026-08-31 and reached terminal status `completed`. The run recorded 17 Firestore events and produced 14 downloadable Cloud Storage artifacts.
 
 - Google ADK planned the product with `gemini-3.5-flash` on Vertex AI.
-- `gemini-embedding-001`, `text-embedding-005`, and `text-multilingual-embedding-002` each returned runtime-verified semantic-alignment evidence.
+- The optional semantic-alignment telemetry completed for the recorded run.
 - All nine deterministic electrical checks passed.
 - PlatformIO compiled a real `firmware.bin` and retained compiler output.
 - Wokwi CLI lint returned 0; the scenario asserted GPIO 10 low at 25°C and high at 35°C, matched `COUP_READY`, `TEMP_NORMAL`, `TEMP_ALERT`, and `COUP_TEST_PASS`, and returned 0 with no missing markers.
@@ -18,7 +18,7 @@ Build [`061bf9dfcf33`](https://forge-web-rldj6ghw7q-uc.a.run.app/build/061bf9dfc
 | Claim | Source / test | Production evidence | Limitation |
 | --- | --- | --- | --- |
 | Gemini plans and repairs the product | `hardware_build/agent.py`, agent tests | Golden build `agent_mode` and `plan.completed`; repair build `firmware.compile.failed`, `agent.repair.started`, and successful recompile | A schema-invalid response is recorded as fallback, never hidden |
-| Three additional Google models verify intent | `semantic_alignment.py`, semantic-alignment test | Per-model dimension, similarity and latency in `semantic-alignment.json` | Raw embedding vectors are never persisted |
+| Optional semantic-alignment telemetry | `semantic_alignment.py`, semantic-alignment test | Per-model dimension, similarity and latency in `semantic-alignment.json` | It is disabled by default until a product decision consumes the result; raw vectors are never persisted |
 | Async API → worker | `service.py`, service tests | Public `POST /api/builds`; Cloud Run Job execution name | Cold start may delay worker start |
 | Firestore state/event stream | `storage.py`, integration check | Build document plus ordered events | Firestore is not a hardware measurement |
 | ESP32 firmware compiles | `firmware.py`, firmware tests | PlatformIO output, `firmware.bin`, `firmware.elf` | Compile success does not prove physical assembly |
@@ -29,7 +29,7 @@ Build [`061bf9dfcf33`](https://forge-web-rldj6ghw7q-uc.a.run.app/build/061bf9dfc
 | Secret handling | `settings.py`, `security.py` tests | Secret Manager reference on worker | Secret values must never be attached to evidence |
 | Failure handling | orchestrator/service tests | Failed/unavailable simulations remain distinct from `not_run` and `not_verified` | Cloud platform interruptions are visible separately |
 
-## Judge quick path
+## Reproduce a build
 
 1. Open the public Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>.
 2. Submit the ESP32 temperature-alarm prompt through the public API or MCP `prototype_start`.
@@ -41,4 +41,4 @@ Production API: <https://forge-api-rldj6ghw7q-uc.a.run.app>
 
 Hosted Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>
 
-Architecture diagram: [architecture.png](architecture.png)
+Architecture diagram: [architecture.svg](architecture.svg)

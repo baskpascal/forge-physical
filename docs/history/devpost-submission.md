@@ -1,4 +1,6 @@
-# Devpost Submission Copy
+# Historical record: Devpost Submission Copy
+
+> Preserved for provenance of the competition submission. The current product documentation is in the repository root and `docs/`.
 
 ## Project
 
@@ -51,7 +53,7 @@ The hardest part was making evidence honest. A CLI exit code is not enough to cl
 - Build Room: <https://forge-web-rldj6ghw7q-uc.a.run.app>
 - Build article: <https://forge-web-rldj6ghw7q-uc.a.run.app/build-story>
 - Repository: <https://github.com/baskpascal/forge-physical> (public)
-- Architecture diagram: <https://github.com/baskpascal/forge-physical/blob/main/docs/architecture.png>
+- Architecture diagram at the preserved baseline: <https://github.com/baskpascal/forge-physical/blob/hackathon-submission-2026/docs/architecture.png>
 
 ## Testing instructions
 

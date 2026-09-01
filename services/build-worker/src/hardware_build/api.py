@@ -19,8 +19,17 @@ from .artifacts import (
     build_public_artifact_paths,
     public_artifact_path,
 )
+from .drone import DroneScopeError
+from .drone_service import (
+    build_drone,
+    change_drone,
+    create_drone,
+    drone_artifacts,
+    drone_status,
+    test_drone,
+)
 from .mcp_server import mcp
-from .models import StartBuildRequest, UpdateBuildRequest
+from .models import DroneChangeRequest, DroneCreateRequest, StartBuildRequest, UpdateBuildRequest
 from .orchestrator import run_build
 from .service import (
     artifacts_payload,
@@ -123,6 +132,59 @@ def health() -> dict:
         },
         "note": "Configuration is not runtime verification. Run python -m hardware_build.integration_check.",
     }
+
+
+def _drone_http_error(exc: DroneScopeError) -> HTTPException:
+    message = str(exc)
+    return HTTPException(404 if message == "Build not found." else 422, message)
+
+
+@app.post("/api/drones", status_code=201)
+def drone_create(payload: DroneCreateRequest) -> dict:
+    try:
+        return create_drone(payload.project, payload.intent)
+    except DroneScopeError as exc:
+        raise _drone_http_error(exc) from exc
+
+
+@app.post("/api/drones/{project}/builds/{build_id}/changes", status_code=201)
+def drone_change(project: str, build_id: str, payload: DroneChangeRequest) -> dict:
+    try:
+        return change_drone(project, build_id, payload.change)
+    except DroneScopeError as exc:
+        raise _drone_http_error(exc) from exc
+
+
+@app.post("/api/drones/{project}/builds/{build_id}/build")
+def drone_build(project: str, build_id: str) -> dict:
+    try:
+        return build_drone(project, build_id)
+    except DroneScopeError as exc:
+        raise _drone_http_error(exc) from exc
+
+
+@app.post("/api/drones/{project}/builds/{build_id}/test")
+def drone_test(project: str, build_id: str) -> dict:
+    try:
+        return test_drone(project, build_id)
+    except DroneScopeError as exc:
+        raise _drone_http_error(exc) from exc
+
+
+@app.get("/api/drones/{project}/builds/{build_id}")
+def drone_build_status(project: str, build_id: str) -> dict:
+    try:
+        return drone_status(project, build_id)
+    except DroneScopeError as exc:
+        raise _drone_http_error(exc) from exc
+
+
+@app.get("/api/drones/{project}/builds/{build_id}/artifacts")
+def drone_build_artifacts(project: str, build_id: str) -> dict:
+    try:
+        return drone_artifacts(project, build_id)
+    except DroneScopeError as exc:
+        raise _drone_http_error(exc) from exc
 
 
 def _client_key(request: Request) -> str:

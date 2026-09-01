@@ -1,4 +1,6 @@
-# Social launch copy
+# Historical record: Social launch copy
+
+> Preserved for provenance of the competition-era launch material; it is not current product messaging.
 
 AI coding agents can ship software. We built one that can also take a physical-product request through hardware specification, real ESP32 firmware compilation, deterministic Wokwi testing, and evidence-backed artifacts on Google Cloud.
 

@@ -1,0 +1,41 @@
+name: Drone Alpha SIH
+
+on:
+  pull_request:
+    paths:
+      - "docker/px4-sih/**"
+      - "services/build-worker/**"
+      - ".github/workflows/drone-sih.yml"
+  workflow_dispatch:
+
+jobs:
+  px4-sih-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install COUP Drone runner
+        run: pip install -e 'services/build-worker[drone]'
+      - name: Build pinned PX4 SIH runtime from source
+        run: docker build --tag coup-px4-sih:v1.17.0 docker/px4-sih
+      - name: Create and compile Drone Alpha project
+        run: |
+          coup init "$RUNNER_TEMP/scout"
+          coup --project "$RUNNER_TEMP/scout" create "make me an easy-to-fly inspection drone for my farm"
+          coup --project "$RUNNER_TEMP/scout" build --build 0001
+      - name: Run observed MAVSDK flight scenario
+        env:
+          PROJECT: ${{ runner.temp }}/scout
+        run: |
+          coup --project "$PROJECT" test --build 0001 \
+            --launcher 'docker run --rm --name coup-px4-run coup-px4-sih:v1.17.0' \
+            --scenario-command "docker run --rm --network container:coup-px4-run -v $GITHUB_WORKSPACE/docker/px4-sih:/work python:3.13-slim bash -lc 'pip install --quiet mavsdk==3.17.2 && python /work/smoke.py'"
+          cat "$PROJECT/builds/0001/coup-drone/verification/report.json"
+      - name: Upload verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: coup-drone-alpha-sih-evidence
+          path: ${{ runner.temp }}/scout/builds/0001/coup-drone/verification/

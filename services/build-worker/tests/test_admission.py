@@ -42,7 +42,7 @@ def test_client_budget_rejects_without_creating_an_orphan(tmp_path: Path):
         dispatch=False,
         store=store,
         settings=settings,
-        client_key="judge",
+        client_key="test-client",
     )
 
     with pytest.raises(BuildAdmissionRejected) as caught:
@@ -51,7 +51,7 @@ def test_client_budget_rejects_without_creating_an_orphan(tmp_path: Path):
             dispatch=False,
             store=store,
             settings=settings,
-            client_key="judge",
+            client_key="test-client",
         )
 
     assert caught.value.reason == "client_budget"
@@ -85,7 +85,7 @@ def test_fourth_build_is_queued_instead_of_capacity_429(tmp_path: Path, monkeypa
             f"Build supported low voltage temperature alarm {index}",
             store=store,
             settings=settings,
-            client_key="judge",
+            client_key="test-client",
         )
         for index in range(4)
     ]
@@ -114,8 +114,8 @@ def test_expired_lease_and_budget_are_reclaimed(tmp_path: Path, monkeypatch):
     clock = iter((100.0, 200.0))
     monkeypatch.setattr("hardware_build.storage.time.time", lambda: next(clock))
 
-    store.reserve_build("first", "judge", settings)
-    store.reserve_build("second", "judge", settings)
+    store.reserve_build("first", "test-client", settings)
+    store.reserve_build("second", "test-client", settings)
 
     assert "second" in store._active_leases
 
