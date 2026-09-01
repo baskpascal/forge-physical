@@ -25,7 +25,7 @@ The compiler accepts only named DroneSpec presets with bounded PX4 parameter ove
 
 Generated projects pin PX4, MAVSDK, schema, compiler, and scenario versions in `coup.lock`. They contain an overlay, generated MAVSDK companion application, scenario runner, provenance hashes, and verification report — not a copied PX4 source tree.
 
-ArduPilot was rejected for Alpha despite strong SITL maturity because its GPLv3 licensing is a worse fit for a product that may distribute custom firmware overlays. Direct MAVLink/pymavlink is retained as an internal escape hatch, not the user-facing API. ROS 2 and ModalAI/VOXL are deferred because they add integration surface without improving the first headless verification loop.
+ArduPilot was rejected for Alpha despite strong SITL maturity because its GPLv3 licensing is a worse fit for a product that may distribute custom firmware overlays. Direct MAVLink/pymavlink is retained as an internal escape hatch, not the user-facing API. ROS 2 and ModalAI/VOXL are deferred because they add integration surface without improving the first headless verification loop. The executable deferred-profile contract and promotion criteria are in [Drone Alpha platform contracts](../drone-platforms.md).
 
 ## Evidence
 

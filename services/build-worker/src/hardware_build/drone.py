@@ -15,6 +15,8 @@ from typing import Any
 
 SCHEMA_VERSION = "coup.dev/v1alpha1"
 PX4_VERSION = "v1.17.0"
+PX4_COMMIT = "d6f12ad1c4f70ad3230afd7d86e971421e02fef4"
+PX4_BUILDER_IMAGE = "px4io/px4-dev-simulation-focal@sha256:de5eba2c8c86b0ca852de59354de7f4d85599ae30587fa9f2905bc0c52b46dd7"
 MAVSDK_VERSION = "3.17.2"
 SCENARIO_VERSION = "drone-alpha-scenario-v1"
 UNSUPPORTED_TERMS = ("weapon", "target", "explosive", "payload release", "evasion")
@@ -168,7 +170,14 @@ def create_version(root: Path, intent: str) -> dict[str, Any]:
     overlay.write_text(parameter_overlay(spec), encoding="utf-8")
     source.write_text(mission_source(spec), encoding="utf-8")
     scenario.write_text(scenario_definition(spec), encoding="utf-8")
-    lock = {"coup_compiler": "drone-alpha-v1", "drone_spec": SCHEMA_VERSION, "px4": PX4_VERSION, "vehicle": "sihsim_quadx", "mavsdk_python": MAVSDK_VERSION, "scenario_suite": SCENARIO_VERSION}
+    lock = {
+        "coup_compiler": "drone-alpha-v1",
+        "drone_spec": SCHEMA_VERSION,
+        "px4": {"version": PX4_VERSION, "commit": PX4_COMMIT, "builder": PX4_BUILDER_IMAGE},
+        "vehicle": "sihsim_quadx",
+        "mavsdk_python": MAVSDK_VERSION,
+        "scenario_suite": SCENARIO_VERSION,
+    }
     (build_root / "coup.lock").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
     manifest = {"intent": intent, "parent_build": parent["id"] if parent else None, "drone_spec_hash": _digest(spec.to_dict()), "overlay_hash": _digest(overlay.read_text(encoding="utf-8")), "scenario_hash": _digest(scenario.read_text(encoding="utf-8")), "lock_hash": _digest(lock)}
     (build_root / "drone/manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -187,7 +196,12 @@ def build_version(root: Path, build_id: str | None = None) -> dict[str, Any]:
     started = time.perf_counter()
     try:
         py_compile.compile(str(build_root / "app/mission.py"), cfile=str(build_root / "build/mission.pyc"), doraise=True)
-        result = {"status": "passed", "command": "python -m py_compile app/mission.py", "duration_ms": round((time.perf_counter() - started) * 1000)}
+        result = {
+            "status": "passed",
+            "command": "python -m py_compile app/mission.py",
+            "build_hash": _digest((build_root / "app/mission.py").read_text(encoding="utf-8")),
+            "duration_ms": round((time.perf_counter() - started) * 1000),
+        }
     except Exception as exc:
         result = {"status": "failed", "error": f"{type(exc).__name__}: {exc}", "duration_ms": round((time.perf_counter() - started) * 1000)}
     record["build"] = result["status"]
@@ -239,6 +253,7 @@ def test_version(
     build_id: str | None = None,
     endpoint: str = "udpin://0.0.0.0:14540",
     launcher: str | None = None,
+    scenario_command: str | None = None,
 ) -> dict[str, Any]:
     state = load_state(root)
     record = next((item for item in state["builds"] if item["id"] == (build_id or state["builds"][-1]["id"])), None)
@@ -247,7 +262,7 @@ def test_version(
     build_root = Path(record["root"])
     report: dict[str, Any] = {
         "status": "unavailable",
-        "stack": {"px4": PX4_VERSION, "mavsdk_python": MAVSDK_VERSION, "endpoint": endpoint},
+        "stack": {"px4": {"version": PX4_VERSION, "commit": PX4_COMMIT}, "mavsdk_python": MAVSDK_VERSION, "endpoint": endpoint},
         "physical_flight": "not_verified",
         "limitations": ["SIH/SITL evidence does not verify physical flight."],
         "tests_executed": [],
@@ -261,6 +276,7 @@ def test_version(
         )
     else:
         command = launcher or os.environ["COUP_PX4_SITL_COMMAND"]
+        external_scenario = scenario_command or os.getenv("COUP_MAVSDK_SCENARIO_COMMAND")
         log_path = build_root / "verification/sitl.log"
         process: subprocess.Popen[str] | None = None
         started = time.perf_counter()
@@ -270,7 +286,30 @@ def test_version(
             if process.poll() is not None:
                 raise RuntimeError(f"PX4 SITL launcher exited with code {process.returncode}.")
             report["tests_executed"] = ["vehicle_discovery", "health_preflight", "arm", "takeoff", "hover", "land"]
-            asyncio.run(asyncio.wait_for(_mavsdk_scenario(endpoint, report), timeout=90))
+            if external_scenario:
+                completed = subprocess.run(
+                    external_scenario,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    check=False,
+                )
+                scenario_log = build_root / "verification/mavsdk-scenario.log"
+                scenario_log.write_text(completed.stdout + completed.stderr, encoding="utf-8")
+                if completed.returncode:
+                    raise RuntimeError(f"MAVSDK scenario exited with code {completed.returncode}.")
+                evidence = dict(
+                    line.split("=", 1) for line in completed.stdout.splitlines() if "=" in line
+                )
+                if evidence.get("vehicle_discovery") != "passed" or evidence.get("landing") != "passed":
+                    raise RuntimeError("MAVSDK scenario did not provide required discovery and landing evidence.")
+                report.update({"vehicle_discovery": "passed", "arming": "passed", "landing": "passed", "runner": "external_container"})
+                report["health"] = {"global_position_ok": evidence.get("health_global_position_ok") == "True"}
+                report["hover"] = {"relative_altitude_m": float(evidence["hover_altitude_m"]), "status": "passed"}
+                report["evidence"] = {"sitl_log": str(log_path), "mavsdk_log": str(scenario_log), "scenario": "tests/scenarios/conservative_inspection.yaml"}
+            else:
+                asyncio.run(asyncio.wait_for(_mavsdk_scenario(endpoint, report), timeout=90))
             report["status"] = "passed"
             report["duration_ms"] = round((time.perf_counter() - started) * 1000)
         except Exception as exc:
@@ -286,7 +325,7 @@ def test_version(
                     process.kill()
             if process and hasattr(process, "_coup_log_file"):
                 process._coup_log_file.close()  # type: ignore[attr-defined]
-        report["evidence"] = {"sitl_log": str(log_path), "scenario": "tests/scenarios/conservative_inspection.yaml"}
+        report.setdefault("evidence", {"sitl_log": str(log_path), "scenario": "tests/scenarios/conservative_inspection.yaml"})
     (build_root / "verification/report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     record["test"] = report["status"]
     save_state(root, state)

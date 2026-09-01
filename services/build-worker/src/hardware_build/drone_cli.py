@@ -28,6 +28,7 @@ def main() -> None:
         command.add_argument("--build")
     commands.choices["test"].add_argument("--endpoint", default="udpin://0.0.0.0:14540")
     commands.choices["test"].add_argument("--launcher", help="Pinned PX4 SIH launcher command; alternatively set COUP_PX4_SITL_COMMAND.")
+    commands.choices["test"].add_argument("--scenario-command", help="MAVSDK scenario command for the simulator network namespace.")
     args = parser.parse_args()
     try:
         root = Path(args.path if args.command == "init" else args.project)
@@ -42,7 +43,7 @@ def main() -> None:
         if args.command == "build":
             record = build_version(root, args.build)
         elif args.command == "test":
-            record = test_version(root, args.build, args.endpoint, args.launcher)
+            record = test_version(root, args.build, args.endpoint, args.launcher, args.scenario_command)
         else:
             state = load_state(root)
             record = next((item for item in state["builds"] if item["id"] == (args.build or state["builds"][-1]["id"])), None)

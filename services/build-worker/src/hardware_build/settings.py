@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     max_repair_attempts: int = 3
     wokwi_cli_token: str | None = None
     wokwi_cli_cmd: str = "wokwi-cli"
+    # Server-owned workspace for Drone Alpha. Never accept an arbitrary client
+    # filesystem path over the public API or MCP.
+    drone_project_root: Path = Path("./drone-projects")
 
     @property
     def gemini_configured(self) -> bool:
